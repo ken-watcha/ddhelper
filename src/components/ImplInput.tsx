@@ -172,7 +172,7 @@ export default function ImplInput({
                 title={`DDhelper Capture v${extensionInfo.version} 연결됨`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
-                확장 연결됨
+                확장 v{extensionInfo.version}
               </span>
             ) : (
               <span

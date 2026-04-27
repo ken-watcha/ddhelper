@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -42,12 +42,20 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   console.log("[DDhelper Capture] port opened from", port.sender?.url);
 
   port.onMessage.addListener(async (message) => {
+    console.log("[DDhelper Capture] port message:", message?.action);
     try {
       const response = await handleMessage(message, port.sender ?? {});
+      console.log(
+        "[DDhelper Capture] sending response, ok=",
+        response?.ok
+      );
       try {
         port.postMessage(response);
-      } catch {
-        // 호출 측이 먼저 disconnect 했을 수 있음
+        // ⚠️ 여기서 disconnect 호출 안 함 — 메시지 큐가 클라이언트에 도달하기 전에
+        // 채널이 끊어지면 클라이언트가 응답을 못 받아 "응답 전 끊어짐" 에러 발생.
+        // 대신 클라이언트가 응답을 받고 자기가 disconnect 호출하도록 함.
+      } catch (e) {
+        console.error("[DDhelper Capture] postMessage failed:", e);
       }
     } catch (err) {
       console.error("[DDhelper Capture] port error", err);
@@ -56,16 +64,14 @@ chrome.runtime.onConnectExternal.addListener((port) => {
           ok: false,
           error: err instanceof Error ? err.message : String(err),
         });
-      } catch {}
-    } finally {
-      try {
-        port.disconnect();
-      } catch {}
+      } catch (e) {
+        console.error("[DDhelper Capture] error postMessage failed:", e);
+      }
     }
   });
 
   port.onDisconnect.addListener(() => {
-    console.log("[DDhelper Capture] port disconnected");
+    console.log("[DDhelper Capture] port disconnected by client");
   });
 });
 

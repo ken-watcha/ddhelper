@@ -147,6 +147,10 @@ export async function captureViaExtension(
             error?: string;
           }
         | undefined;
+      // 응답 받았으니 우리 쪽에서 정리
+      try {
+        port.disconnect();
+      } catch {}
       if (!r || !r.ok) {
         reject(new Error(r?.error || "캡처 실패"));
         return;
@@ -164,7 +168,7 @@ export async function captureViaExtension(
       reject(
         new Error(
           lastError?.message ||
-            "확장 통신이 응답 전에 끊어졌습니다 (확장이 다시 로드됐을 수 있어요)"
+            "확장 통신이 응답 전에 끊어졌습니다. 가능한 원인: (1) chrome://extensions에서 DDhelper Capture 새로고침 안 됨 (버전 0.4.0 이상이어야 함), (2) 캡처 중 service worker가 종료됨"
         )
       );
     });
