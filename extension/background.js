@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.4.5";
+const VERSION = "0.4.6";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -44,6 +44,19 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   port.onMessage.addListener(async (message) => {
     console.log("[DDhelper Capture] port message:", message?.action);
 
+    // 강제 keepalive: 5초마다 chrome API 호출 → SW idle timer 리셋
+    // Port 자체로는 100% 안 막힌다는 보장이 없음 (Chrome 버전/환경 따라 차이).
+    let pingCount = 0;
+    const keepAliveId = setInterval(async () => {
+      pingCount++;
+      try {
+        await chrome.runtime.getPlatformInfo();
+        if (pingCount % 6 === 0) {
+          console.log(`[DDhelper Capture] keepalive ${pingCount * 5}s`);
+        }
+      } catch {}
+    }, 5000);
+
     try {
       const response = await handleMessage(message, port.sender ?? {});
       console.log(
@@ -52,9 +65,7 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       );
       try {
         port.postMessage(response);
-        // ⚠️ 여기서 disconnect 호출 안 함 — 메시지 큐가 클라이언트에 도달하기 전에
-        // 채널이 끊어지면 클라이언트가 응답을 못 받아 "응답 전 끊어짐" 에러 발생.
-        // 대신 클라이언트가 응답을 받고 자기가 disconnect 호출하도록 함.
+        // ⚠️ disconnect 호출 안 함 — 클라이언트가 직접 disconnect.
       } catch (e) {
         console.error("[DDhelper Capture] postMessage failed:", e);
       }
@@ -68,6 +79,8 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       } catch (e) {
         console.error("[DDhelper Capture] error postMessage failed:", e);
       }
+    } finally {
+      clearInterval(keepAliveId);
     }
   });
 
@@ -394,10 +407,17 @@ async function triggerLazyLoad(tabId) {
 function waitForTabComplete(tabId, timeoutMs) {
   return new Promise((resolve, reject) => {
     let resolved = false;
+
+    // SW keepalive — tab load 대기 중에도 chrome API 주기적 호출
+    const pingId = setInterval(() => {
+      chrome.tabs.get(tabId).catch(() => {});
+    }, 4000);
+
     const finish = (fn) => {
       if (resolved) return;
       resolved = true;
       clearTimeout(timer);
+      clearInterval(pingId);
       chrome.tabs.onUpdated.removeListener(listener);
       fn();
     };
