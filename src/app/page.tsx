@@ -317,25 +317,17 @@ export default function Home() {
 }
 
 /**
- * 활성 Figma 시안의 viewport에 맞는 캡처 너비를 결정.
- * 시안 이름에 viewport 범위가 명시돼 있으면 그 범위에 들어가는 가장 큰 표준 width,
- * 없으면 viewport 카테고리의 표준 width를 반환.
+ * 활성 Figma 시안의 너비를 그대로 스테이징 캡처 너비로 사용.
+ * 디자이너가 375px 시안을 그렸으면 스테이징도 375px에서 캡처해야
+ * 같은 폭에서 1:1 비교가 됨.
  *
  * 활성 시안이 없으면 undefined → ImplInput이 fallback (모바일+데스크톱) 사용.
  */
 function deriveCaptureWidths(meta: ActiveFrameMeta | null): number[] | undefined {
   if (!meta) return undefined;
-  const STANDARD = [375, 768, 1024, 1440];
-
-  if (meta.viewportRange) {
-    const { max } = meta.viewportRange;
-    // 범위 안에 들어가는 가장 큰 표준 width
-    for (let i = STANDARD.length - 1; i >= 0; i--) {
-      if (STANDARD[i] <= max) return [STANDARD[i]];
-    }
-    return [STANDARD[0]];
-  }
-  return [VIEWPORT_CAPTURE_WIDTHS[meta.viewport]];
+  // 너무 크면 popup 창 한계 (보통 데스크톱 최대) 안에서 캡 — 1920px 이상은 잘라냄
+  const width = Math.min(Math.round(meta.width), 1920);
+  return [width];
 }
 
 /**
