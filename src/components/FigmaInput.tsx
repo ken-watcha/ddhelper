@@ -196,7 +196,7 @@ export default function FigmaInput({
         <button
           onClick={handleLoad}
           disabled={loading || !url.trim()}
-          className="px-6 py-3.5 bg-white text-black rounded-2xl text-sm font-bold hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap transition-colors flex items-center justify-center gap-2"
+          className="px-6 py-3 bg-white text-black rounded-full text-[13px] font-bold hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap transition-colors flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
