@@ -202,35 +202,35 @@ export default function ImplInput({
         </div>
       )}
 
-      <div className="relative">
-        <svg
-          className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <svg
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+            />
+          </svg>
+          <input
+            type="text"
+            value={webUrl}
+            onChange={(e) => setWebUrl(e.target.value)}
+            placeholder="https://staging.watcha.com/..."
+            className="w-full pl-11 pr-4 py-3.5 bg-[#1C1C1C] border border-white/[0.06] rounded-2xl text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#FF0558]/50 focus:ring-2 focus:ring-[#FF0558]/10 transition-all"
+            onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
           />
-        </svg>
-        <input
-          type="text"
-          value={webUrl}
-          onChange={(e) => setWebUrl(e.target.value)}
-          placeholder="https://staging.watcha.com/..."
-          className="w-full pl-11 pr-4 py-3.5 bg-[#1C1C1C] border border-white/[0.06] rounded-2xl text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#FF0558]/50 focus:ring-2 focus:ring-[#FF0558]/10 transition-all"
-          onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
-        />
-      </div>
-
-      <button
-        onClick={handleAnalyze}
-        disabled={isDisabled}
-        className="mt-4 px-6 py-3 bg-white text-black rounded-2xl text-[13px] font-bold hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-      >
+        </div>
+        <button
+          onClick={handleAnalyze}
+          disabled={isDisabled}
+          className="px-6 py-3 bg-white text-black rounded-2xl text-[13px] font-bold hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap transition-colors flex items-center justify-center gap-2"
+        >
         {loading ? (
           <>
             <span className="inline-block w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -239,7 +239,8 @@ export default function ImplInput({
         ) : (
           "분석하기"
         )}
-      </button>
+        </button>
+      </div>
 
       {loading && loadingStep && (
         <div className="mt-4 rounded-2xl bg-[#FF0558]/5 border border-[#FF0558]/20 px-4 py-3 flex items-center gap-3">
