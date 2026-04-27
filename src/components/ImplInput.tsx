@@ -7,6 +7,7 @@ import {
   useExtensionInfo,
   captureViaExtension,
   pingExtension,
+  pingExtensionViaPort,
 } from "@/lib/staging-client";
 import TokenPreview from "./TokenPreview";
 
@@ -49,13 +50,19 @@ export default function ImplInput({
   const handleTestExtension = async () => {
     if (!extensionInfo) return;
     setPingResult("테스트 중...");
-    const r = await pingExtension(extensionInfo.id);
-    if (r.ok) {
-      setPingResult(`✓ SW 응답 OK (v${r.version})`);
-    } else {
-      setPingResult(`✗ ${r.error}`);
-    }
-    setTimeout(() => setPingResult(null), 8000);
+
+    // 두 채널 동시 테스트: sendMessage (one-shot) + Port (캡처와 동일)
+    const [msgResult, portResult] = await Promise.all([
+      pingExtension(extensionInfo.id),
+      pingExtensionViaPort(extensionInfo.id),
+    ]);
+
+    const parts: string[] = [];
+    parts.push(msgResult.ok ? "✓ msg" : `✗ msg(${msgResult.error?.slice(0, 30)})`);
+    parts.push(portResult.ok ? "✓ port" : `✗ port(${portResult.error?.slice(0, 30)})`);
+
+    setPingResult(parts.join(" · "));
+    setTimeout(() => setPingResult(null), 15000);
   };
 
   const handleAnalyze = async () => {
@@ -201,9 +208,9 @@ export default function ImplInput({
                 {pingResult && (
                   <span
                     className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
-                      pingResult.startsWith("✓")
-                        ? "bg-[#22C55E]/15 text-[#22C55E]"
-                        : "bg-[#EF4444]/15 text-[#EF4444]"
+                      pingResult.includes("✗")
+                        ? "bg-[#EF4444]/15 text-[#EF4444]"
+                        : "bg-[#22C55E]/15 text-[#22C55E]"
                     }`}
                   >
                     {pingResult}

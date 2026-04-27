@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.4.4";
+const VERSION = "0.4.5";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -44,13 +44,6 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   port.onMessage.addListener(async (message) => {
     console.log("[DDhelper Capture] port message:", message?.action);
 
-    // 강제 keepalive — chrome.alarms 등록해두면 SW idle 종료 안 됨
-    try {
-      chrome.alarms.create("ddhelper-keepalive", {
-        periodInMinutes: 0.4, // 24초마다
-      });
-    } catch {}
-
     try {
       const response = await handleMessage(message, port.sender ?? {});
       console.log(
@@ -75,27 +68,12 @@ chrome.runtime.onConnectExternal.addListener((port) => {
       } catch (e) {
         console.error("[DDhelper Capture] error postMessage failed:", e);
       }
-    } finally {
-      // 작업 끝나면 keepalive 알람 해제
-      try {
-        chrome.alarms.clear("ddhelper-keepalive");
-      } catch {}
     }
   });
 
   port.onDisconnect.addListener(() => {
     console.log("[DDhelper Capture] port disconnected by client");
-    try {
-      chrome.alarms.clear("ddhelper-keepalive");
-    } catch {}
   });
-});
-
-// keepalive 알람 더미 listener — 알람 발화 시 SW가 깨어나/살아있게 함
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "ddhelper-keepalive") {
-    console.log("[DDhelper Capture] keepalive ping");
-  }
 });
 
 async function handleMessage(message, sender) {

@@ -124,6 +124,76 @@ const REQUIRED_EXT_VERSION = "0.4.0";
  * 확장에 ping 한 번 던져 service worker 응답 여부 확인.
  * 캡처 시작 전에 호출해서 SW가 살아있는지 빠르게 검증.
  */
+/**
+ * Port 기반 ping — 캡처와 동일한 통신 채널 사용. 캡처 disconnect 에러가
+ * sendMessage(ping)는 통과하는데 connect+port는 막히는 이슈인지 진단.
+ */
+export async function pingExtensionViaPort(
+  extensionId: string
+): Promise<{ ok: boolean; version?: string; error?: string }> {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "브라우저 환경 아님" };
+  }
+  const w = window as unknown as ChromeRuntimeWindow;
+  const connect = w.chrome?.runtime?.connect;
+  if (!connect) {
+    return { ok: false, error: "Chrome 확장 API 접근 불가" };
+  }
+
+  return new Promise((resolve) => {
+    let port: ChromeRuntimePort;
+    try {
+      port = connect(extensionId, { name: "ddhelper-capture" });
+    } catch (e) {
+      resolve({
+        ok: false,
+        error: e instanceof Error ? e.message : "connect 실패",
+      });
+      return;
+    }
+
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        port.disconnect();
+      } catch {}
+      resolve({ ok: false, error: "Port 응답 없음 (5초 timeout)" });
+    }, 5000);
+
+    port.onMessage.addListener((response: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try {
+        port.disconnect();
+      } catch {}
+      const r = response as
+        | { ok: boolean; version?: string; error?: string }
+        | undefined;
+      if (!r || !r.ok) {
+        resolve({ ok: false, error: r?.error || "ping 실패" });
+        return;
+      }
+      resolve({ ok: true, version: r.version });
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const lastError = w.chrome?.runtime?.lastError;
+      resolve({
+        ok: false,
+        error: lastError?.message || "Port 연결이 응답 전에 끊김",
+      });
+    });
+
+    port.postMessage({ action: "ping" });
+  });
+}
+
 export async function pingExtension(
   extensionId: string
 ): Promise<{ ok: boolean; version?: string; error?: string }> {
