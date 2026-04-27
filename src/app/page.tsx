@@ -2,19 +2,46 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { DesignToken, ComparisonResult, FigmaFrameInfo } from "@/lib/types";
+import {
+  DesignToken,
+  ComparisonResult,
+  FigmaFrameInfo,
+  DesignSystemToken,
+  ViewportCategory,
+  VIEWPORT_LABELS,
+  VIEWPORT_CAPTURE_WIDTHS,
+  StagingCaptureItem,
+} from "@/lib/types";
 import { postJson } from "@/lib/fetcher";
 import FigmaInput from "@/components/FigmaInput";
 import ImplInput from "@/components/ImplInput";
 import ComparisonTable from "@/components/ComparisonTable";
 import VisualCompare from "@/components/VisualCompare";
+import AnalysisCriteria from "@/components/AnalysisCriteria";
 
 type ViewMode = "visual" | "table";
+
+interface ActiveFrameMeta {
+  frameId: string;
+  name: string;
+  width: number;
+  height: number;
+  viewport: ViewportCategory;
+  sectionName: string | null;
+  viewportRange: { min: number; max: number } | null;
+}
 
 export default function Home() {
   const [designTokens, setDesignTokens] = useState<DesignToken[]>([]);
   const [implTokens, setImplTokens] = useState<DesignToken[]>([]);
   const [frame, setFrame] = useState<FigmaFrameInfo | null>(null);
+  const [activeFrameMeta, setActiveFrameMeta] = useState<ActiveFrameMeta | null>(
+    null
+  );
+  const [catalog, setCatalog] = useState<DesignSystemToken[]>([]);
+  const [stagingCaptures, setStagingCaptures] = useState<StagingCaptureItem[]>(
+    []
+  );
   const [results, setResults] = useState<ComparisonResult[]>([]);
   const [summary, setSummary] = useState<{
     critical: number;
@@ -26,22 +53,33 @@ export default function Home() {
   } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("visual");
   const [comparing, setComparing] = useState(false);
+  const [compareElapsed, setCompareElapsed] = useState(0);
   const [error, setError] = useState("");
 
   const handleCompare = async () => {
     if (designTokens.length === 0 || implTokens.length === 0) return;
     setComparing(true);
+    setCompareElapsed(0);
     setError("");
+    const startTime = Date.now();
+    const elapsedTimer = setInterval(() => {
+      setCompareElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 500);
     try {
       const data = await postJson<{
         results: ComparisonResult[];
         summary: typeof summary;
-      }>("/api/compare", { designTokens, implTokens });
+      }>("/api/compare", {
+        designTokens,
+        implTokens,
+        catalog: catalog.length > 0 ? catalog : undefined,
+      });
       setResults(data.results);
       setSummary(data.summary);
     } catch (e) {
       setError(e instanceof Error ? e.message : "비교 중 오류가 발생했습니다");
     } finally {
+      clearInterval(elapsedTimer);
       setComparing(false);
     }
   };
@@ -103,14 +141,25 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-6 pb-20 space-y-4">
-        <FigmaInput
-          onTokensExtracted={(tokens, f) => {
-            setDesignTokens(tokens);
-            setFrame(f);
-          }}
-        />
+        {/* Step 1 & Step 2 — 큰 화면에서는 좌우, 좁은 화면에서는 위아래 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <FigmaInput
+            onTokensExtracted={(tokens, f, cat, meta) => {
+              setDesignTokens(tokens);
+              setFrame(f);
+              setCatalog(cat);
+              setActiveFrameMeta(meta);
+              // 비교 결과는 새 프레임으로 바뀌면 초기화 (오해 방지)
+              setResults([]);
+              setSummary(null);
+            }}
+          />
 
-        <ImplInput onTokensExtracted={setImplTokens} />
+          <ImplInput
+            onTokensExtracted={setImplTokens}
+            onCapturesReady={setStagingCaptures}
+          />
+        </div>
 
         {/* Step 3: Compare */}
         <section className="bg-[#141414] rounded-2xl p-6 md:p-8 border border-white/[0.06]">
@@ -118,11 +167,29 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <StepBadge number={3} />
               <div>
-                <h3 className="text-lg font-bold text-white tracking-tight">
-                  비교 결과
-                </h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-lg font-bold text-white tracking-tight">
+                    비교 결과
+                  </h3>
+                  {activeFrameMeta?.sectionName && (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/[0.08] border border-white/[0.06] text-[11px] font-bold text-white">
+                      {activeFrameMeta.sectionName}
+                    </span>
+                  )}
+                  {activeFrameMeta && (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#FF0558]/10 border border-[#FF0558]/20 text-[11px] font-bold text-[#FF0558]">
+                      <span className="font-mono opacity-80">
+                        {activeFrameMeta.width}px
+                      </span>
+                      <span>·</span>
+                      <span>{VIEWPORT_LABELS[activeFrameMeta.viewport]}</span>
+                    </span>
+                  )}
+                </div>
                 <p className="text-[13px] text-neutral-500 mt-0.5">
-                  Figma 시안과 구현물의 불일치를 분석해드려요
+                  {activeFrameMeta
+                    ? `${activeFrameMeta.name} 시안과 구현물의 불일치를 분석해드려요`
+                    : "Figma 시안과 구현물의 불일치를 분석해드려요"}
                 </p>
               </div>
             </div>
@@ -162,7 +229,9 @@ export default function Home() {
                 disabled={!canCompare || comparing}
                 loading={comparing}
               >
-                {comparing ? "비교 중..." : "비교하기"}
+                {comparing
+                  ? `비교 중...${compareElapsed > 0 ? ` ${compareElapsed}초` : ""}`
+                  : "비교하기"}
               </WatchaButton>
             </div>
           </div>
@@ -194,8 +263,21 @@ export default function Home() {
                 <SummaryCard label="일치" count={summary.match} color="#22C55E" />
               </div>
 
+              {/* 분석 기준 투명성 공개 */}
+              <div className="mb-6">
+                <AnalysisCriteria hasCatalog={catalog.length > 0} />
+              </div>
+
               {viewMode === "visual" && frame ? (
-                <VisualCompare results={results} frame={frame} />
+                <VisualCompare
+                  results={results}
+                  frame={frame}
+                  stagingCapture={
+                    activeFrameMeta
+                      ? findMatchingCapture(stagingCaptures, activeFrameMeta)
+                      : null
+                  }
+                />
               ) : viewMode === "visual" && !frame ? (
                 <div className="space-y-4">
                   <div className="rounded-2xl bg-[#FFB800]/10 border border-[#FFB800]/30 p-5 text-sm text-[#FFB800]">
@@ -226,10 +308,57 @@ export default function Home() {
               Built by Watcha Product Design Team
             </p>
           </div>
-          <p className="text-xs text-neutral-600">Powered by Gemini · Figma API</p>
+          <p className="text-xs text-neutral-600">Figma API · Groq Llama</p>
         </div>
       </footer>
     </div>
+  );
+}
+
+/**
+ * 활성 시안에 어울리는 캡처를 찾음.
+ * 1순위: 시안 이름이 viewport 범위를 명시한 경우(예: "1280 미만") → 그 범위 안에 있는 캡처 중
+ *         가장 큰 너비의 캡처 (디자인이 의도한 가장 표준적 해상도)
+ * 2순위: 범위 정보가 없으면 viewport 카테고리(small/medium/large/xlarge) 기준 매칭
+ */
+function findMatchingCapture(
+  captures: StagingCaptureItem[],
+  meta: ActiveFrameMeta
+): StagingCaptureItem | null {
+  const validCaptures = captures.filter((c) => c.capture !== null);
+  if (validCaptures.length === 0) return null;
+
+  // 1순위: 시안 이름의 viewport 범위 우선
+  if (meta.viewportRange) {
+    const { min, max } = meta.viewportRange;
+    const inRange = validCaptures.filter(
+      (c) => c.viewport.width >= min && c.viewport.width <= max
+    );
+    if (inRange.length > 0) {
+      // 가장 큰 너비 (디자인이 적용되는 최대 해상도)
+      return inRange.reduce((largest, c) =>
+        c.viewport.width > largest.viewport.width ? c : largest
+      );
+    }
+    // 범위 안에 캡처가 없으면 가장 가까운 캡처 (예: 시안은 360~599인데 캡처는 375)
+    const target = (min + Math.min(max, 9999)) / 2;
+    return validCaptures.reduce((best, c) =>
+      Math.abs(c.viewport.width - target) <
+      Math.abs(best.viewport.width - target)
+        ? c
+        : best
+    );
+  }
+
+  // 2순위: 카테고리 매핑
+  const targetWidth = VIEWPORT_CAPTURE_WIDTHS[meta.viewport];
+  const exact = validCaptures.find((c) => c.viewport.width === targetWidth);
+  if (exact) return exact;
+  return validCaptures.reduce((best, c) =>
+    Math.abs(c.viewport.width - targetWidth) <
+    Math.abs(best.viewport.width - targetWidth)
+      ? c
+      : best
   );
 }
 

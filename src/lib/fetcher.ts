@@ -26,8 +26,24 @@ export async function postJson<T>(url: string, body: unknown): Promise<T> {
   if (!contentType.includes("application/json")) {
     // 서버리스 함수 타임아웃 (Vercel이 504/HTML 에러 페이지 반환)
     if (res.status === 504 || text.includes("FUNCTION_INVOCATION_TIMEOUT")) {
+      // 어떤 API인지에 따라 안내 다름
+      if (url.includes("/api/figma")) {
+        throw new Error(
+          "분석 시간이 초과됐습니다. 페이지 안에 시안이 너무 많거나 Figma 응답이 큰 경우입니다. 특정 프레임 URL로 다시 시도해보거나, 시안 수가 적은 페이지로 시도해주세요."
+        );
+      }
+      if (url.includes("/api/extract-web")) {
+        throw new Error(
+          "웹 페이지 분석 시간이 초과됐습니다. URL 응답이 너무 크거나 서버가 느릴 수 있어요. 잠시 후 다시 시도해주세요."
+        );
+      }
+      if (url.includes("/api/compare")) {
+        throw new Error(
+          "비교 분석 시간이 초과됐습니다. 토큰 수가 너무 많거나 AI 서버 부하가 높을 수 있어요. 잠시 후 다시 시도해주세요."
+        );
+      }
       throw new Error(
-        "AI 분석 시간이 너무 오래 걸려 중단됐습니다. 피그마 프레임이 복잡하거나 Gemini 서버 부하가 높을 수 있어요. 잠시 후 다시 시도해주세요."
+        "요청 시간이 초과됐습니다. 잠시 후 다시 시도해주세요."
       );
     }
     if (res.status >= 500) {

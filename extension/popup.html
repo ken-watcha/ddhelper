@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DDhelper Capture</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI",
+        sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      padding: 18px 18px 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #ff0558, #cc0446);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 900;
+      color: #fff;
+    }
+    .title {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+    .version {
+      font-size: 10px;
+      color: #666;
+      margin-top: 1px;
+    }
+    .divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.06);
+      margin: 0 -18px 14px;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #777;
+      margin-bottom: 8px;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      font-size: 12px;
+      color: #ccc;
+      margin-bottom: 14px;
+    }
+    .status .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+    .info {
+      font-size: 12px;
+      color: #999;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+    .info b {
+      color: #fff;
+    }
+    .button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 10px 14px;
+      background: #ff0558;
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .button:hover {
+      background: #e6044f;
+    }
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+      margin-top: 6px;
+    }
+    .button.secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .footer {
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 10px;
+      color: #555;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">DD</div>
+    <div>
+      <div class="title">DDhelper Capture</div>
+      <div class="version" id="version">v0.1.0</div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-label">상태</div>
+  <div class="status">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">정상 동작 중</span>
+  </div>
+
+  <p class="info">
+    이 확장은 <b>DDhelper 도구</b>가 viewport별 스크린샷을 자동으로 캡처할 때
+    작동합니다. 평소 그대로 watcha.com에 로그인된 상태로 두시면 됩니다.
+  </p>
+
+  <a id="open-tool" class="button" target="_blank" href="#">
+    DDhelper 도구 열기
+  </a>
+  <a class="button secondary" target="_blank" href="http://localhost:3000">
+    로컬 도구 열기 (개발용)
+  </a>
+
+  <div class="footer">Watcha Product Design</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
