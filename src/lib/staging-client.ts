@@ -277,19 +277,32 @@ export async function captureViaExtension(
     }
 
     let settled = false;
+    let lastHeartbeat: { at?: string; elapsed?: number; n?: number } | null =
+      null;
 
     port.onMessage.addListener((response: unknown) => {
-      if (settled) return;
-      settled = true;
       const r = response as
         | {
-            ok: boolean;
+            ok?: boolean;
+            type?: string;
+            at?: string;
+            elapsed?: number;
+            n?: number;
             results?: StagingCaptureItem[];
             tokens?: DesignToken[];
             error?: string;
           }
         | undefined;
-      // 응답 받았으니 우리 쪽에서 정리
+
+      // 하트비트는 disconnect 진단용으로만 기록하고 무시
+      if (r?.type === "heartbeat") {
+        lastHeartbeat = { at: r.at, elapsed: r.elapsed, n: r.n };
+        console.log(`[ddhelper] heartbeat ${r.n} @${r.elapsed}s stage=${r.at}`);
+        return;
+      }
+
+      if (settled) return;
+      settled = true;
       try {
         port.disconnect();
       } catch {}
@@ -307,10 +320,14 @@ export async function captureViaExtension(
       if (settled) return;
       settled = true;
       const lastError = w.chrome?.runtime?.lastError;
+      const hb = lastHeartbeat
+        ? ` 마지막 진행: ${lastHeartbeat.elapsed}초 / 단계=${lastHeartbeat.at} / 하트비트 ${lastHeartbeat.n}회 받음.`
+        : " 하트비트가 한 번도 안 옴 → 캡처 시작 자체가 실패.";
       reject(
         new Error(
-          lastError?.message ||
-            "확장 통신이 응답 전에 끊어졌습니다. 가능한 원인: (1) chrome://extensions에서 DDhelper Capture 새로고침 안 됨 (버전 0.4.0 이상이어야 함), (2) 캡처 중 service worker가 종료됨"
+          (lastError?.message ||
+            "확장 통신이 응답 전에 끊어졌습니다. service worker가 종료된 것으로 보입니다.") +
+            hb
         )
       );
     });

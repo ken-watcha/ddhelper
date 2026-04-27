@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.4.6";
+const VERSION = "0.4.7";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -44,18 +44,34 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   port.onMessage.addListener(async (message) => {
     console.log("[DDhelper Capture] port message:", message?.action);
 
-    // 강제 keepalive: 5초마다 chrome API 호출 → SW idle timer 리셋
-    // Port 자체로는 100% 안 막힌다는 보장이 없음 (Chrome 버전/환경 따라 차이).
-    let pingCount = 0;
-    const keepAliveId = setInterval(async () => {
-      pingCount++;
+    // 진행 단계 추적용 — disconnect 시 어디서 끊겼는지 알 수 있게
+    let currentStage = "starting";
+    const startedAt = Date.now();
+
+    // 하트비트 + keepalive 동시: 2초마다 client에 진행 신호 + chrome API 호출
+    let beatCount = 0;
+    const heartbeatId = setInterval(async () => {
+      beatCount++;
       try {
         await chrome.runtime.getPlatformInfo();
-        if (pingCount % 6 === 0) {
-          console.log(`[DDhelper Capture] keepalive ${pingCount * 5}s`);
-        }
       } catch {}
-    }, 5000);
+      try {
+        port.postMessage({
+          type: "heartbeat",
+          at: currentStage,
+          elapsed: Math.round((Date.now() - startedAt) / 1000),
+          n: beatCount,
+        });
+      } catch {
+        // port 이미 끊겼으면 의미 없음 — interval 정리만
+        clearInterval(heartbeatId);
+      }
+    }, 2000);
+
+    // handleMessage가 단계 정보를 업데이트할 수 있도록 globally 노출
+    globalThis.__ddhelper_setStage = (s) => {
+      currentStage = s;
+    };
 
     try {
       const response = await handleMessage(message, port.sender ?? {});
@@ -63,9 +79,9 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         "[DDhelper Capture] sending response, ok=",
         response?.ok
       );
+      currentStage = "done";
       try {
         port.postMessage(response);
-        // ⚠️ disconnect 호출 안 함 — 클라이언트가 직접 disconnect.
       } catch (e) {
         console.error("[DDhelper Capture] postMessage failed:", e);
       }
@@ -80,7 +96,8 @@ chrome.runtime.onConnectExternal.addListener((port) => {
         console.error("[DDhelper Capture] error postMessage failed:", e);
       }
     } finally {
-      clearInterval(keepAliveId);
+      clearInterval(heartbeatId);
+      delete globalThis.__ddhelper_setStage;
     }
   });
 
@@ -174,13 +191,13 @@ async function captureMultiple(url, viewports, doExtractTokens) {
  * 5. 창 닫기
  */
 async function captureSingle(url, viewport, doExtractTokens) {
-  // chrome.windows.create는 chrome UI(타이틀바, 주소창 일부)를 포함한 사이즈 기준이라
-  // 실제 viewport보다 약간 큰 창을 만들어야 함. type:"popup"이면 chrome UI가 거의 없어서
-  // viewport와 거의 일치.
-  //
-  // focused:true 가 핵심 — Chrome은 백그라운드 탭의 네트워크/타이머/JS를 throttling
-  // 하기 때문에 focused:false면 watcha 같은 SPA가 API 응답을 제대로 못 받아 placeholder만
-  // 잡힘. 캡처 동안 잠깐 창이 떴다가 자동 닫힘.
+  const setStage = (s) => {
+    if (typeof globalThis.__ddhelper_setStage === "function") {
+      globalThis.__ddhelper_setStage(`${viewport.width}px:${s}`);
+    }
+  };
+
+  setStage("creating-window");
   const win = await chrome.windows.create({
     url,
     type: "popup",
@@ -197,28 +214,20 @@ async function captureSingle(url, viewport, doExtractTokens) {
   if (!tab.id) throw new Error("탭 ID가 없습니다");
 
   try {
-    // 페이지 로드 대기 (최대 20초)
+    setStage("waiting-tab-load");
     await waitForTabComplete(tab.id, 20000);
-    // 초기 정착 대기 — Hero 영역 첫 페인트 시간
     await sleep(1000);
 
-    // 1) 첫 화면(Hero) 콘텐츠가 충분히 로드될 때까지 polling (최대 8초)
-    //    스크롤이 시작되는 시점에 위쪽이 비면 첫 슬라이스가 skeleton으로 잡힘.
-    //    아래쪽 lazy-load는 이후 스티칭 스크롤이 자연스럽게 트리거하므로
-    //    별도의 사전 lazy-trigger 호출은 생략 (속도 개선).
+    setStage("waiting-content");
     await waitForContent(tab.id, 8000);
-
-    // 2) 안정화 짧게
     await sleep(400);
 
-    // 3) 페이지 사이즈 측정 (오버레이 숨김은 스티칭 첫 슬라이스 후로 미룸 →
-    //    GNB가 첫 슬라이스에는 정상으로 보이고, 두 번째부터만 숨겨져 중복 방지)
+    setStage("measuring");
     const m = await measurePage(tab.id, viewport);
 
-    // 6) 토큰 추출 (요청한 경우만) — 캡처 전에 실행해야 오버레이는 visibility:hidden이지만
-    //    DOM 구조는 그대로라 정상 동작
     let tokens = [];
     if (doExtractTokens) {
+      setStage("extracting-tokens");
       try {
         tokens = await extractTokensFromTab(tab.id);
         console.log(`[extract] ${tokens.length} tokens`);
@@ -227,16 +236,17 @@ async function captureSingle(url, viewport, doExtractTokens) {
       }
     }
 
-    // 7) 페이지가 한 화면에 다 들어가면 단일 캡처, 아니면 스크롤·스티칭
     const needsStitch = m.scrollHeight > m.clientHeight + 30;
 
     let imageDataUrl;
     if (!needsStitch) {
+      setStage("single-shot");
       console.log(`[capture ${viewport.width}px] single shot ${m.clientWidth}x${m.scrollHeight}`);
       imageDataUrl = await chrome.tabs.captureVisibleTab(win.id, {
         format: "png",
       });
     } else {
+      setStage("stitching");
       console.log(`[capture ${viewport.width}px] stitching ${m.clientWidth}x${m.scrollHeight} (viewport ${m.clientHeight})`);
       imageDataUrl = await captureFullPageStitched(tab.id, win.id, m);
     }
