@@ -139,7 +139,7 @@ export default function ImplInput({
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-lg font-bold text-white tracking-tight">
-              구현물
+              스테이징
             </h3>
             {extensionInfo ? (
               <span
@@ -165,24 +165,8 @@ export default function ImplInput({
         </div>
       </div>
 
-      {/* 확장 연결 상태 안내 박스 */}
-      {extensionInfo ? (
-        <div className="mb-3 rounded-xl bg-[#22C55E]/10 border border-[#22C55E]/30 px-4 py-3 flex items-center gap-3">
-          <div className="w-7 h-7 rounded-full bg-[#22C55E]/20 flex items-center justify-center shrink-0">
-            <svg className="w-4 h-4 text-[#22C55E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-[#22C55E]">
-              DDhelper Capture 확장 연결됨 (v{extensionInfo.version})
-            </p>
-            <p className="text-[12px] text-neutral-400 mt-0.5">
-              본인 크롬 세션으로 캡처합니다. 로그인이 필요한 페이지도 정상 캡처됩니다.
-            </p>
-          </div>
-        </div>
-      ) : (
+      {/* 확장 미설치일 때만 안내 박스 — 연결됐으면 헤더의 '확장 연결됨' 태그로 충분 */}
+      {!extensionInfo && (
         <div className="mb-3 rounded-xl bg-[#FFB800]/10 border border-[#FFB800]/30 px-4 py-3">
           <div className="flex items-start gap-3">
             <div className="w-7 h-7 rounded-full bg-[#FFB800]/20 flex items-center justify-center shrink-0 mt-0.5">
