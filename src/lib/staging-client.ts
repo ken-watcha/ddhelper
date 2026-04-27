@@ -10,6 +10,20 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { StagingCaptureItem, DesignToken } from "./types";
+import { stitchClientSide } from "./client-stitch";
+
+interface RawCaptureFromExt {
+  slices: { dataUrl: string; scrollY: number }[];
+  pageWidth: number;
+  pageHeight: number;
+  clientHeight: number;
+}
+
+interface RawCaptureItem {
+  viewport: { width: number; height: number };
+  capture: RawCaptureFromExt | null;
+  error?: string;
+}
 
 export interface ExtensionInfo {
   id: string;
@@ -280,7 +294,7 @@ export async function captureViaExtension(
     let lastHeartbeat: { at?: string; elapsed?: number; n?: number } | null =
       null;
 
-    port.onMessage.addListener((response: unknown) => {
+    port.onMessage.addListener(async (response: unknown) => {
       const r = response as
         | {
             ok?: boolean;
@@ -288,7 +302,7 @@ export async function captureViaExtension(
             at?: string;
             elapsed?: number;
             n?: number;
-            results?: StagingCaptureItem[];
+            results?: RawCaptureItem[];
             tokens?: DesignToken[];
             error?: string;
           }
@@ -310,8 +324,42 @@ export async function captureViaExtension(
         reject(new Error(r?.error || "캡처 실패"));
         return;
       }
+
+      // 클라이언트 측에서 슬라이스 합치기 (SW 부담 0)
+      const rawResults = r.results || [];
+      const stitched: StagingCaptureItem[] = await Promise.all(
+        rawResults.map(async (item) => {
+          if (!item.capture) {
+            return {
+              viewport: item.viewport,
+              capture: null,
+            };
+          }
+          try {
+            const imageDataUrl = await stitchClientSide(item.capture);
+            return {
+              viewport: item.viewport,
+              capture: {
+                imageDataUrl,
+                pageWidth: item.capture.pageWidth,
+                pageHeight: item.capture.pageHeight,
+              },
+            };
+          } catch (e) {
+            console.error(
+              `[stitch] viewport ${item.viewport.width}px 합성 실패:`,
+              e
+            );
+            return {
+              viewport: item.viewport,
+              capture: null,
+            };
+          }
+        })
+      );
+
       resolve({
-        results: r.results || [],
+        results: stitched,
         tokens: r.tokens || [],
       });
     });

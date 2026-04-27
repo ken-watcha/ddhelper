@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.4.7";
+const VERSION = "0.5.0";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -238,24 +238,37 @@ async function captureSingle(url, viewport, doExtractTokens) {
 
     const needsStitch = m.scrollHeight > m.clientHeight + 30;
 
-    let imageDataUrl;
+    // 슬라이스만 모아서 client로 보낸다. SW 안에서 PNG 합성을 하면
+    // canvas.convertToBlob 단계에서 12MP 이상 인코딩이 SW 수명을 초과해
+    // service worker가 종료됨. 합성은 client(페이지)에서 HTMLCanvas로 처리.
+    let slices;
+    let finalPageHeight = m.scrollHeight;
     if (!needsStitch) {
       setStage("single-shot");
-      console.log(`[capture ${viewport.width}px] single shot ${m.clientWidth}x${m.scrollHeight}`);
-      imageDataUrl = await chrome.tabs.captureVisibleTab(win.id, {
+      console.log(
+        `[capture ${viewport.width}px] single shot ${m.clientWidth}x${m.scrollHeight}`
+      );
+      const dataUrl = await chrome.tabs.captureVisibleTab(win.id, {
         format: "png",
       });
+      slices = [{ dataUrl, scrollY: 0 }];
     } else {
       setStage("stitching");
-      console.log(`[capture ${viewport.width}px] stitching ${m.clientWidth}x${m.scrollHeight} (viewport ${m.clientHeight})`);
-      imageDataUrl = await captureFullPageStitched(tab.id, win.id, m);
+      console.log(
+        `[capture ${viewport.width}px] collecting slices ${m.clientWidth}x${m.scrollHeight} (viewport ${m.clientHeight})`
+      );
+      const result = await captureFullPageStitched(tab.id, win.id, m);
+      slices = result.slices;
+      finalPageHeight = result.pageHeight;
     }
 
     return {
       capture: {
-        imageDataUrl,
+        // imageDataUrl 대신 slices 배열을 보냄. 클라이언트가 합쳐서 사용.
+        slices,
         pageWidth: m.clientWidth,
-        pageHeight: m.scrollHeight,
+        pageHeight: finalPageHeight,
+        clientHeight: m.clientHeight,
       },
       tokens,
     };
@@ -607,9 +620,9 @@ async function captureFullPageStitched(tabId, windowId, m) {
 
   const elapsed = Math.round((Date.now() - startedAt) / 100) / 10;
   console.log(
-    `[capture] captured ${slices.length} slices in ${elapsed}s, page=${pageHeight}, stitching...`
+    `[capture] collected ${slices.length} slices in ${elapsed}s, page=${pageHeight}`
   );
-  return await stitchSlices(slices, m, pageHeight);
+  return { slices, pageHeight };
 }
 
 /**
