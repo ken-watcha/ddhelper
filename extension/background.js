@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -450,20 +450,21 @@ async function hideOverlayElements(tabId) {
  */
 async function captureFullPageStitched(tabId, windowId, m) {
   const slices = [];
-  const VIEWPORT_OVERLAP = 0; // 슬라이스 간 겹침 (필요 시 늘림)
-  const SCROLL_SETTLE_MS = 450;
+  const VIEWPORT_OVERLAP = 0;
+  const SCROLL_SETTLE_MS = 500; // 스크롤 후 lazy 콘텐츠 도착 대기
   const RATE_LIMIT_MS = 520;
 
-  // 안전 상한: 너무 긴 페이지는 일정 길이까지만 (캔버스 한계 + 메모리)
-  const MAX_PAGE_HEIGHT = 18000;
-  const effectivePageHeight = Math.min(m.scrollHeight, MAX_PAGE_HEIGHT);
+  // 안전 상한: 너무 긴 페이지는 일정 길이까지 (캔버스 한계 + 메모리)
+  const MAX_PAGE_HEIGHT = 30000;
+
+  // 동적 페이지 높이 — 스크롤하면서 lazy 콘텐츠로 자라면 재측정해 늘림
+  let pageHeight = Math.min(m.scrollHeight, MAX_PAGE_HEIGHT);
 
   let y = 0;
   let safety = 0;
-  while (y < effectivePageHeight && safety < 60) {
+  while (y < pageHeight && safety < 80) {
     safety++;
-    // 마지막 슬라이스는 페이지 바닥에 앵커 (y가 마지막 한 화면을 못 다 덮으면 끌어올림)
-    const maxScrollY = Math.max(0, effectivePageHeight - m.clientHeight);
+    const maxScrollY = Math.max(0, pageHeight - m.clientHeight);
     const scrollY = Math.min(y, maxScrollY);
 
     await chrome.scripting.executeScript({
@@ -479,7 +480,6 @@ async function captureFullPageStitched(tabId, windowId, m) {
         format: "png",
       });
     } catch (e) {
-      // rate limit 등 — 살짝 기다렸다 재시도 1회
       console.warn("[capture] captureVisibleTab failed, retrying:", e);
       await sleep(800);
       dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
@@ -488,13 +488,38 @@ async function captureFullPageStitched(tabId, windowId, m) {
     }
     slices.push({ dataUrl, scrollY });
 
-    if (scrollY >= maxScrollY) break;
-    y = scrollY + m.clientHeight - VIEWPORT_OVERLAP;
+    // 다음 위치 계산
+    const nextY = scrollY + m.clientHeight - VIEWPORT_OVERLAP;
+
+    // 페이지 끝 근처에 가까우면 한번 더 측정 — lazy 콘텐츠가 추가됐을 수 있음
+    if (scrollY + m.clientHeight + 200 >= pageHeight) {
+      const remeasured = await measurePage(tabId, {
+        width: m.clientWidth,
+        height: m.clientHeight,
+      });
+      const newHeight = Math.min(remeasured.scrollHeight, MAX_PAGE_HEIGHT);
+      if (newHeight > pageHeight + 50) {
+        console.log(
+          `[capture] page grew during scroll: ${pageHeight} → ${newHeight}`
+        );
+        pageHeight = newHeight;
+        // 자랐으니 계속 진행
+        y = nextY;
+        await sleep(RATE_LIMIT_MS);
+        continue;
+      }
+      // 안 자랐으면 종료
+      break;
+    }
+
+    y = nextY;
     await sleep(RATE_LIMIT_MS);
   }
 
-  console.log(`[capture] captured ${slices.length} slices, stitching...`);
-  return await stitchSlices(slices, m, effectivePageHeight);
+  console.log(
+    `[capture] captured ${slices.length} slices, page=${pageHeight}, stitching...`
+  );
+  return await stitchSlices(slices, m, pageHeight);
 }
 
 /**
