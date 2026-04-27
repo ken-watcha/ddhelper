@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DDhelper Capture",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DDhelper 디자인 QA 도구를 위한 스테이징 viewport별 자동 캡처. 본인 크롬 세션을 그대로 사용해 로그인된 페이지도 안전하게 캡처합니다.",
 
   "permissions": [

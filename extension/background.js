@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -249,7 +249,7 @@ async function captureSingle(url, viewport, doExtractTokens) {
         `[capture ${viewport.width}px] single shot ${m.clientWidth}x${m.scrollHeight}`
       );
       const dataUrl = await chrome.tabs.captureVisibleTab(win.id, {
-        format: "png",
+        format: "jpeg", quality: 92,
       });
       slices = [{ dataUrl, scrollY: 0 }];
     } else {
@@ -540,9 +540,9 @@ async function captureFullPageStitched(tabId, windowId, m) {
   const RATE_LIMIT_MS = 520;
 
   // 안전 상한 — 디자인 QA 목적이라 페이지 전부 안 잡혀도 OK.
-  // 무한 스크롤 페이지에서도 일정 시간 안에 끝남.
-  const MAX_PAGE_HEIGHT = 12000;
-  const MAX_TIME_MS = 30000; // viewport당 30초 하드 캡
+  // 무한 스크롤 페이지에서도 일정 시간 안에 끝남. 메모리/응답 크기 고려해 8000px.
+  const MAX_PAGE_HEIGHT = 8000;
+  const MAX_TIME_MS = 25000; // viewport당 25초 하드 캡
   const startedAt = Date.now();
 
   // 동적 페이지 높이 — 스크롤하면서 lazy 콘텐츠로 자라면 재측정해 늘림
@@ -570,13 +570,13 @@ async function captureFullPageStitched(tabId, windowId, m) {
     let dataUrl;
     try {
       dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
-        format: "png",
+        format: "jpeg", quality: 92,
       });
     } catch (e) {
       console.warn("[capture] captureVisibleTab failed, retrying:", e);
       await sleep(800);
       dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
-        format: "png",
+        format: "jpeg", quality: 92,
       });
     }
     slices.push({ dataUrl, scrollY });
