@@ -142,7 +142,7 @@ export default function Home() {
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-6 pb-20 space-y-4">
         {/* Step 1 & Step 2 — 큰 화면에서는 좌우, 좁은 화면에서는 위아래 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
           <FigmaInput
             onTokensExtracted={(tokens, f, cat, meta) => {
               setDesignTokens(tokens);

@@ -131,7 +131,7 @@ export default function ImplInput({
   const isDisabled = loading || !webUrl.trim();
 
   return (
-    <section className="bg-[#141414] rounded-2xl p-6 md:p-8 border border-white/[0.06]">
+    <section className="bg-[#141414] rounded-2xl p-6 md:p-8 border border-white/[0.06] h-full flex flex-col">
       <div className="flex items-center gap-3 mb-5">
         <div className="w-10 h-10 rounded-xl bg-[#FF0558]/10 border border-[#FF0558]/20 flex items-center justify-center">
           <span className="text-[#FF0558] font-black text-sm">2</span>
