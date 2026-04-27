@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -54,9 +54,7 @@ async function handleMessage(message, sender) {
         ? message.viewports
         : [
             { width: 375, height: 800 },
-            { width: 768, height: 1024 },
             { width: 1024, height: 900 },
-            { width: 1440, height: 900 },
           ];
     const results = await captureMultiple(message.url, viewports);
     return { ok: true, results };
@@ -126,26 +124,23 @@ async function captureSingle(url, viewport) {
   if (!tab.id) throw new Error("탭 ID가 없습니다");
 
   try {
-    // 페이지 로드 대기 (최대 25초)
-    await waitForTabComplete(tab.id, 25000);
-    // 초기 정착 대기
-    await sleep(2000);
+    // 페이지 로드 대기 (최대 20초)
+    await waitForTabComplete(tab.id, 20000);
+    // 초기 정착 대기 — Hero 영역 첫 페인트 시간
+    await sleep(1000);
 
-    // 1) lazy-load 트리거: 페이지 끝까지 스크롤하면서 콘텐츠 로딩 유도 → 맨 위로
-    await triggerLazyLoad(tab.id);
-    await sleep(1500);
+    // 1) 첫 화면(Hero) 콘텐츠가 충분히 로드될 때까지 polling (최대 8초)
+    //    스크롤이 시작되는 시점에 위쪽이 비면 첫 슬라이스가 skeleton으로 잡힘.
+    //    아래쪽 lazy-load는 이후 스티칭 스크롤이 자연스럽게 트리거하므로
+    //    별도의 사전 lazy-trigger 호출은 생략 (속도 개선).
+    await waitForContent(tab.id, 8000);
 
-    // 2) 실제 콘텐츠(이미지)가 충분히 로드될 때까지 polling (최대 20초)
-    //    React SPA 같은 경우 API 응답 도착 후에야 영화 카드가 그려짐
-    await waitForContent(tab.id, 20000);
+    // 2) 안정화 짧게
+    await sleep(400);
 
-    // 3) 마지막 안정화 대기 (애니메이션/페이드인 마무리)
-    await sleep(1200);
-
-    // 4) sticky/fixed 헤더·푸터 숨김 — 안 그러면 슬라이스 위에 매번 같은 헤더가 찍혀서
-    //    이어붙였을 때 헤더가 페이지 중간 중간 반복돼 보임
+    // 3) sticky/fixed 헤더·푸터 숨김 — 슬라이스마다 헤더 중복 찍히는 문제 방지
     await hideOverlayElements(tab.id);
-    await sleep(300);
+    await sleep(200);
 
     // 5) 페이지 사이즈 측정 (오버레이 숨긴 후 최종 레이아웃 기준)
     const m = await measurePage(tab.id, viewport);
@@ -426,8 +421,8 @@ async function hideOverlayElements(tabId) {
 async function captureFullPageStitched(tabId, windowId, m) {
   const slices = [];
   const VIEWPORT_OVERLAP = 0; // 슬라이스 간 겹침 (필요 시 늘림)
-  const SCROLL_SETTLE_MS = 700;
-  const RATE_LIMIT_MS = 550;
+  const SCROLL_SETTLE_MS = 450;
+  const RATE_LIMIT_MS = 520;
 
   // 안전 상한: 너무 긴 페이지는 일정 길이까지만 (캔버스 한계 + 메모리)
   const MAX_PAGE_HEIGHT = 18000;

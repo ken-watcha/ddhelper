@@ -9,11 +9,11 @@ import {
 } from "@/lib/staging-client";
 import TokenPreview from "./TokenPreview";
 
+// 기본은 모바일 + 데스크톱 두 사이즈만 (속도 우선).
+// 더 많은 사이즈가 필요하면 Figma에 해당 시안이 있을 때 자동으로 늘림.
 const DEFAULT_VIEWPORTS = [
   { width: 375, height: 800 },
-  { width: 768, height: 1024 },
-  { width: 1280, height: 900 },
-  { width: 1440, height: 900 },
+  { width: 1024, height: 900 },
 ];
 
 export default function ImplInput({
@@ -32,6 +32,7 @@ export default function ImplInput({
   const [tokens, setTokens] = useState<DesignToken[]>([]);
   const [capturesCount, setCapturesCount] = useState(0);
   const [capturesLoading, setCapturesLoading] = useState(false);
+  const [capturesElapsed, setCapturesElapsed] = useState(0);
   const [captureSource, setCaptureSource] = useState<
     "extension" | "server" | null
   >(null);
@@ -44,12 +45,16 @@ export default function ImplInput({
     setCapturesLoading(true);
     setError("");
     setElapsed(0);
+    setCapturesElapsed(0);
     setCachedHit(false);
     setCapturesCount(0);
 
     const startTime = Date.now();
     const elapsedTimer = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 500);
+    const captureTimer = setInterval(() => {
+      setCapturesElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 500);
 
     setLoadingStep("웹 페이지 HTML을 가져오는 중...");
@@ -125,6 +130,7 @@ export default function ImplInput({
       // ignore
     } finally {
       setCapturesLoading(false);
+      clearInterval(captureTimer);
     }
   };
 
@@ -291,7 +297,7 @@ export default function ImplInput({
             <div className="flex items-center gap-2">
               <span className="inline-block w-3.5 h-3.5 border-2 border-[#FF0558]/30 border-t-[#FF0558] rounded-full animate-spin" />
               <span className="text-[12px] text-neutral-400">
-                viewport별 스크린샷 캡처 중...
+                스크린샷 캡처 중 ({capturesElapsed}초) — 페이지가 길면 1~2분 걸려요
               </span>
             </div>
           ) : capturesCount > 0 ? (
