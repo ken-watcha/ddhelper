@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.3.2";
+const VERSION = "0.4.0";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -30,6 +30,44 @@ chrome.runtime.onMessageExternal.addListener(
     return true; // 비동기 응답
   }
 );
+
+// ---------------------------------------------------------------------------
+// 포트 기반 채널 — 캡처처럼 30초+ 걸리는 작업에 사용.
+// chrome.runtime.connect로 만든 Port는 살아있는 동안 service worker가
+// 종료되지 않게 유지해 줌. one-shot sendMessage는 SW가 idle 판정으로 죽으면
+// "message channel closed" 에러가 나기 때문에 긴 작업은 반드시 Port로.
+// ---------------------------------------------------------------------------
+chrome.runtime.onConnectExternal.addListener((port) => {
+  if (port.name !== "ddhelper-capture") return;
+  console.log("[DDhelper Capture] port opened from", port.sender?.url);
+
+  port.onMessage.addListener(async (message) => {
+    try {
+      const response = await handleMessage(message, port.sender ?? {});
+      try {
+        port.postMessage(response);
+      } catch {
+        // 호출 측이 먼저 disconnect 했을 수 있음
+      }
+    } catch (err) {
+      console.error("[DDhelper Capture] port error", err);
+      try {
+        port.postMessage({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } catch {}
+    } finally {
+      try {
+        port.disconnect();
+      } catch {}
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    console.log("[DDhelper Capture] port disconnected");
+  });
+});
 
 async function handleMessage(message, sender) {
   if (!message || typeof message !== "object") {
@@ -539,10 +577,17 @@ async function stitchSlices(slices, m, pageHeight) {
   if (slices.length === 0) throw new Error("스티칭할 슬라이스 없음");
 
   const bitmaps = [];
-  for (const s of slices) {
+  for (let i = 0; i < slices.length; i++) {
+    const s = slices[i];
     const blob = await (await fetch(s.dataUrl)).blob();
     const bitmap = await createImageBitmap(blob);
     bitmaps.push({ bitmap, scrollY: s.scrollY });
+    // 무거운 디코딩 중간에 chrome API 호출 — service worker keepalive
+    if (i % 4 === 3) {
+      try {
+        await chrome.runtime.getPlatformInfo();
+      } catch {}
+    }
   }
 
   const first = bitmaps[0].bitmap;
@@ -780,11 +825,19 @@ async function blobToDataUrl(blob) {
   const bytes = new Uint8Array(buffer);
   const CHUNK = 0x8000;
   let binary = "";
+  let chunkCount = 0;
   for (let i = 0; i < bytes.length; i += CHUNK) {
     binary += String.fromCharCode.apply(
       null,
       bytes.subarray(i, i + CHUNK)
     );
+    chunkCount++;
+    // 큰 PNG (수 MB)면 String 처리에 시간이 걸려 SW 죽을 수 있음 — 주기적 keepalive
+    if (chunkCount % 32 === 0) {
+      try {
+        await chrome.runtime.getPlatformInfo();
+      } catch {}
+    }
   }
   const base64 = btoa(binary);
   return `data:${blob.type || "image/png"};base64,${base64}`;

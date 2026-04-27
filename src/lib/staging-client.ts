@@ -16,6 +16,13 @@ export interface ExtensionInfo {
   version: string;
 }
 
+interface ChromeRuntimePort {
+  postMessage: (msg: unknown) => void;
+  disconnect: () => void;
+  onMessage: { addListener: (cb: (msg: unknown) => void) => void };
+  onDisconnect: { addListener: (cb: () => void) => void };
+}
+
 interface ChromeRuntimeWindow {
   chrome?: {
     runtime?: {
@@ -24,6 +31,10 @@ interface ChromeRuntimeWindow {
         message: unknown,
         callback?: (response: unknown) => void
       ) => void;
+      connect: (
+        extensionId: string,
+        connectInfo?: { name?: string }
+      ) => ChromeRuntimePort;
       lastError?: { message?: string };
     };
   };
@@ -101,40 +112,68 @@ export async function captureViaExtension(
     throw new Error("브라우저 환경이 아닙니다");
   }
   const w = window as unknown as ChromeRuntimeWindow;
-  const sendMessage = w.chrome?.runtime?.sendMessage;
-  if (!sendMessage) {
+  const connect = w.chrome?.runtime?.connect;
+  if (!connect) {
     throw new Error(
       "크롬 환경이 아니거나 확장 API에 접근할 수 없습니다 (Chrome 브라우저로 접속해주세요)"
     );
   }
 
+  // Port 기반 통신: chrome.runtime.connect로 만든 Port가 살아있는 동안
+  // service worker가 idle 종료되지 않음. 30초+ 걸리는 캡처에 필수.
   return new Promise((resolve, reject) => {
-    sendMessage(
-      extensionId,
-      { action: "captureStaging", url, viewports, extractTokens: true },
-      (response: unknown) => {
-        const lastError = w.chrome?.runtime?.lastError;
-        if (lastError) {
-          reject(new Error(lastError.message || "확장 통신 실패"));
-          return;
-        }
-        const r = response as
-          | {
-              ok: boolean;
-              results?: StagingCaptureItem[];
-              tokens?: DesignToken[];
-              error?: string;
-            }
-          | undefined;
-        if (!r || !r.ok) {
-          reject(new Error(r?.error || "캡처 실패"));
-          return;
-        }
-        resolve({
-          results: r.results || [],
-          tokens: r.tokens || [],
-        });
+    let port: ChromeRuntimePort;
+    try {
+      port = connect(extensionId, { name: "ddhelper-capture" });
+    } catch (e) {
+      reject(
+        new Error(
+          e instanceof Error ? e.message : "확장 연결 실패 (확장이 설치되어 있는지 확인)"
+        )
+      );
+      return;
+    }
+
+    let settled = false;
+
+    port.onMessage.addListener((response: unknown) => {
+      if (settled) return;
+      settled = true;
+      const r = response as
+        | {
+            ok: boolean;
+            results?: StagingCaptureItem[];
+            tokens?: DesignToken[];
+            error?: string;
+          }
+        | undefined;
+      if (!r || !r.ok) {
+        reject(new Error(r?.error || "캡처 실패"));
+        return;
       }
-    );
+      resolve({
+        results: r.results || [],
+        tokens: r.tokens || [],
+      });
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      settled = true;
+      const lastError = w.chrome?.runtime?.lastError;
+      reject(
+        new Error(
+          lastError?.message ||
+            "확장 통신이 응답 전에 끊어졌습니다 (확장이 다시 로드됐을 수 있어요)"
+        )
+      );
+    });
+
+    port.postMessage({
+      action: "captureStaging",
+      url,
+      viewports,
+      extractTokens: true,
+    });
   });
 }
