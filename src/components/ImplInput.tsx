@@ -57,48 +57,58 @@ export default function ImplInput({
       setCapturesElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 500);
 
+    if (extensionInfo) {
+      // 확장이 연결돼 있으면 캡처 + 토큰 추출을 한 번에 (AI 호출 0회 → rate limit 없음)
+      setLoadingStep("스테이징 페이지 로드 + 토큰·스크린샷 추출 중...");
+      try {
+        const data = await captureViaExtension(
+          extensionInfo.id,
+          webUrl,
+          DEFAULT_VIEWPORTS
+        );
+        setTokens(data.tokens);
+        onTokensExtracted(data.tokens);
+
+        const valid = data.results.filter((r) => r.capture !== null);
+        setCapturesCount(valid.length);
+        setCaptureSource("extension");
+        if (onCapturesReady) onCapturesReady(data.results);
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "확장 캡처/추출에 실패했습니다"
+        );
+      } finally {
+        setLoading(false);
+        setCapturesLoading(false);
+        setLoadingStep("");
+        clearInterval(elapsedTimer);
+        clearInterval(captureTimer);
+      }
+      return;
+    }
+
+    // 확장 없음 → 서버 fallback (AI 사용, rate limit 위험 있음)
     setLoadingStep("웹 페이지 HTML을 가져오는 중...");
     setTimeout(() => setLoadingStep("AI가 CSS 속성을 분석 중..."), 1500);
 
-    // 토큰 추출과 viewport별 스크린샷 캡처를 병렬 실행
     const tokenPromise = postJson<{
       tokens: DesignToken[];
       cached?: boolean;
     }>("/api/extract-web", { url: webUrl });
 
-    // 캡처: 확장이 설치돼 있으면 확장 사용 (본인 세션) → 안 되면 서버 헤드리스 fallback
-    const capturePromise: Promise<{
-      results: StagingCaptureItem[];
-      source: "extension" | "server";
-    }> = (async () => {
-      if (extensionInfo) {
-        try {
-          const results = await captureViaExtension(
-            extensionInfo.id,
-            webUrl,
-            DEFAULT_VIEWPORTS
-          );
-          return { results, source: "extension" as const };
-        } catch (e) {
-          console.warn(
-            "확장 캡처 실패, 서버 fallback 시도:",
-            e instanceof Error ? e.message : e
-          );
-        }
-      }
-      // 폴백: 서버 헤드리스 크롬
+    const capturePromise = (async () => {
       try {
         const data = await postJson<{
           results: StagingCaptureItem[];
           cached?: boolean;
         }>("/api/capture-staging", { url: webUrl });
-        return { results: data.results, source: "server" as const };
+        return data.results;
       } catch (e) {
         console.warn(
-          "서버 캡처도 실패:",
+          "서버 캡처 실패:",
           e instanceof Error ? e.message : e
         );
-        return { results: [], source: "server" as const };
+        return [] as StagingCaptureItem[];
       }
     })();
 
@@ -107,8 +117,6 @@ export default function ImplInput({
       setTokens(data.tokens);
       setCachedHit(data.cached || false);
       onTokensExtracted(data.tokens);
-
-      // 토큰 끝나면 분석 완료 표시. 캡처는 백그라운드에서 계속.
       setLoading(false);
       clearInterval(elapsedTimer);
       setLoadingStep("");
@@ -119,13 +127,12 @@ export default function ImplInput({
       setLoadingStep("");
     }
 
-    // 캡처는 별도로 처리 (시간 더 걸릴 수 있음)
     try {
-      const captureData = await capturePromise;
-      const valid = captureData.results.filter((r) => r.capture !== null);
+      const results = await capturePromise;
+      const valid = results.filter((r) => r.capture !== null);
       setCapturesCount(valid.length);
-      setCaptureSource(captureData.source);
-      if (onCapturesReady) onCapturesReady(captureData.results);
+      setCaptureSource("server");
+      if (onCapturesReady) onCapturesReady(results);
     } catch {
       // ignore
     } finally {

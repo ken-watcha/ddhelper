@@ -9,7 +9,7 @@
  * 확장이 설치돼 있지 않으면 throw — 호출자는 fallback(서버 헤드리스) 또는 안내 처리.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { StagingCaptureItem } from "./types";
+import type { StagingCaptureItem, DesignToken } from "./types";
 
 export interface ExtensionInfo {
   id: string;
@@ -81,14 +81,22 @@ export function useExtensionInfo(): {
   return { info, retry };
 }
 
+export interface ExtensionCaptureResult {
+  results: StagingCaptureItem[];
+  tokens: DesignToken[];
+}
+
 /**
- * 확장에 캡처 요청. 확장이 없거나 통신 실패 시 throw.
+ * 확장에 캡처 + 토큰 추출 요청. 확장이 없거나 통신 실패 시 throw.
+ *
+ * 토큰 추출은 첫 viewport에서 1회만 실행 (DOM 구조는 viewport마다 거의 같음).
+ * AI 호출 없이 DOM의 computed style을 직접 읽어 토큰화 → rate limit 부담 0.
  */
 export async function captureViaExtension(
   extensionId: string,
   url: string,
   viewports: { width: number; height: number }[]
-): Promise<StagingCaptureItem[]> {
+): Promise<ExtensionCaptureResult> {
   if (typeof window === "undefined") {
     throw new Error("브라우저 환경이 아닙니다");
   }
@@ -103,7 +111,7 @@ export async function captureViaExtension(
   return new Promise((resolve, reject) => {
     sendMessage(
       extensionId,
-      { action: "captureStaging", url, viewports },
+      { action: "captureStaging", url, viewports, extractTokens: true },
       (response: unknown) => {
         const lastError = w.chrome?.runtime?.lastError;
         if (lastError) {
@@ -114,6 +122,7 @@ export async function captureViaExtension(
           | {
               ok: boolean;
               results?: StagingCaptureItem[];
+              tokens?: DesignToken[];
               error?: string;
             }
           | undefined;
@@ -121,7 +130,10 @@ export async function captureViaExtension(
           reject(new Error(r?.error || "캡처 실패"));
           return;
         }
-        resolve(r.results || []);
+        resolve({
+          results: r.results || [],
+          tokens: r.tokens || [],
+        });
       }
     );
   });

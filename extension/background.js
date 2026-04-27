@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.2.1";
+const VERSION = "0.3.0";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -56,8 +56,12 @@ async function handleMessage(message, sender) {
             { width: 375, height: 800 },
             { width: 1024, height: 900 },
           ];
-    const results = await captureMultiple(message.url, viewports);
-    return { ok: true, results };
+    const { results, tokens } = await captureMultiple(
+      message.url,
+      viewports,
+      message.extractTokens !== false
+    );
+    return { ok: true, results, tokens };
   }
 
   return { ok: false, error: `unknown action: ${message.action}` };
@@ -75,21 +79,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * 여러 viewport에 대해 순차 캡처.
- * 병렬은 메모리/창 충돌 가능성이 있어 안정성 우선 순차.
+ * 첫 viewport에서 토큰까지 함께 추출 (DOM 구조는 viewport마다 거의 동일하므로 1회면 충분).
  */
-async function captureMultiple(url, viewports) {
+async function captureMultiple(url, viewports, doExtractTokens) {
   const results = [];
-  for (const vp of viewports) {
+  let tokens = [];
+
+  for (let i = 0; i < viewports.length; i++) {
+    const vp = viewports[i];
     try {
-      const capture = await captureSingle(url, vp);
+      const { capture, tokens: extractedTokens } = await captureSingle(
+        url,
+        vp,
+        // 첫 viewport(보통 데스크톱급 1024)에서만 토큰 추출
+        doExtractTokens && i === 0
+      );
       results.push({ viewport: vp, capture });
+      if (extractedTokens && extractedTokens.length > 0) {
+        tokens = extractedTokens;
+      }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       console.warn(`[capture] ${vp.width}px failed:`, error);
       results.push({ viewport: vp, capture: null, error });
     }
   }
-  return results;
+  return { results, tokens };
 }
 
 /**
@@ -100,7 +115,7 @@ async function captureMultiple(url, viewports) {
  * 4. 페이지 사이즈 측정
  * 5. 창 닫기
  */
-async function captureSingle(url, viewport) {
+async function captureSingle(url, viewport, doExtractTokens) {
   // chrome.windows.create는 chrome UI(타이틀바, 주소창 일부)를 포함한 사이즈 기준이라
   // 실제 viewport보다 약간 큰 창을 만들어야 함. type:"popup"이면 chrome UI가 거의 없어서
   // viewport와 거의 일치.
@@ -145,7 +160,19 @@ async function captureSingle(url, viewport) {
     // 5) 페이지 사이즈 측정 (오버레이 숨긴 후 최종 레이아웃 기준)
     const m = await measurePage(tab.id, viewport);
 
-    // 6) 페이지가 한 화면에 다 들어가면 단일 캡처, 아니면 스크롤·스티칭
+    // 6) 토큰 추출 (요청한 경우만) — 캡처 전에 실행해야 오버레이는 visibility:hidden이지만
+    //    DOM 구조는 그대로라 정상 동작
+    let tokens = [];
+    if (doExtractTokens) {
+      try {
+        tokens = await extractTokensFromTab(tab.id);
+        console.log(`[extract] ${tokens.length} tokens`);
+      } catch (e) {
+        console.warn("[extract] failed:", e);
+      }
+    }
+
+    // 7) 페이지가 한 화면에 다 들어가면 단일 캡처, 아니면 스크롤·스티칭
     const needsStitch = m.scrollHeight > m.clientHeight + 30;
 
     let imageDataUrl;
@@ -160,9 +187,12 @@ async function captureSingle(url, viewport) {
     }
 
     return {
-      imageDataUrl,
-      pageWidth: m.clientWidth,
-      pageHeight: m.scrollHeight,
+      capture: {
+        imageDataUrl,
+        pageWidth: m.clientWidth,
+        pageHeight: m.scrollHeight,
+      },
+      tokens,
     };
   } finally {
     // 창 닫기
@@ -499,6 +529,214 @@ async function stitchSlices(slices, m, pageHeight) {
   const blob = await canvas.convertToBlob({ type: "image/png" });
   return await blobToDataUrl(blob);
 }
+
+// ===========================================================================
+// 디자인 토큰 추출 (DOM 직접 — AI 호출 없음)
+// ===========================================================================
+
+/**
+ * 페이지 안의 주요 요소들의 computed style을 직접 읽어 디자인 토큰으로 변환.
+ * AI 사용 시 분당 한도(rate limit) 문제로 막히기 때문에 결정적(deterministic) 추출 사용.
+ */
+async function extractTokensFromTab(tabId) {
+  const r = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const tokens = [];
+      const seen = new Set();
+
+      // rgb/rgba → #RRGGBB 정규화
+      const normColor = (v) => {
+        if (!v) return v;
+        const m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+        if (m) {
+          return (
+            "#" +
+            m
+              .slice(1, 4)
+              .map((n) => Number(n).toString(16).padStart(2, "0"))
+              .join("")
+              .toUpperCase()
+          );
+        }
+        return v.trim();
+      };
+
+      const norm = (prop, v) => {
+        if (!v) return v;
+        if (prop.includes("color")) return normColor(v);
+        // px 그대로
+        return v.trim();
+      };
+
+      const cat = (p) => {
+        if (p.includes("color")) return "color";
+        if (
+          p.includes("font") ||
+          p.includes("line-height") ||
+          p.includes("letter-spacing")
+        )
+          return "typography";
+        if (p.includes("padding") || p.includes("margin") || p === "gap")
+          return "spacing";
+        if (p === "width" || p === "height") return "sizing";
+        if (p.includes("border")) return "border";
+        return "spacing";
+      };
+
+      const elementName = (el) => {
+        // 의미 있는 이름: 첫 클래스 (너무 길면 짤라서) 또는 태그명
+        if (typeof el.className === "string" && el.className.trim()) {
+          const first = el.className.trim().split(/\s+/)[0];
+          if (first && first.length <= 40) return "." + first;
+        }
+        const role = el.getAttribute("role");
+        if (role) return `${el.tagName.toLowerCase()}[role=${role}]`;
+        return el.tagName.toLowerCase();
+      };
+
+      const isTransparent = (v) =>
+        !v ||
+        v === "rgba(0, 0, 0, 0)" ||
+        v === "transparent" ||
+        v === "none" ||
+        v === "auto" ||
+        v === "normal";
+
+      const collect = (el, type, props) => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 4 || rect.height < 4) return; // 거의 안 보이는 거 제외
+        const cs = window.getComputedStyle(el);
+        const name = elementName(el);
+
+        for (const p of props) {
+          let v = cs.getPropertyValue(p);
+          if (!v) continue;
+          v = v.trim();
+          if (isTransparent(v)) continue;
+          if (p.includes("color") && (v === "currentcolor" || v === "inherit"))
+            continue;
+
+          const normalized = norm(p, v);
+          const key = `${type}|${p}|${normalized}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          tokens.push({
+            element: name,
+            elementType: type,
+            property: p,
+            value: normalized,
+            category: cat(p),
+          });
+        }
+      };
+
+      // 각 elementType마다 최대 N개 후보만 (대형 페이지에서도 토큰 수 제어)
+      const MAX_PER_TYPE = 8;
+
+      const TARGETS = [
+        {
+          type: "button",
+          selector: 'button, [role="button"], a[class*="btn"], a[class*="Button"]',
+          props: [
+            "background-color",
+            "color",
+            "font-size",
+            "font-weight",
+            "padding-top",
+            "padding-bottom",
+            "padding-left",
+            "padding-right",
+            "border-radius",
+            "border-color",
+            "border-width",
+            "height",
+          ],
+        },
+        {
+          type: "heading",
+          selector: "h1, h2, h3, h4",
+          props: [
+            "color",
+            "font-size",
+            "font-weight",
+            "line-height",
+            "letter-spacing",
+          ],
+        },
+        {
+          type: "text",
+          selector: "p",
+          props: ["color", "font-size", "font-weight", "line-height"],
+        },
+        {
+          type: "input",
+          selector:
+            'input[type="text"], input[type="search"], input[type="email"], input[type="password"], textarea',
+          props: [
+            "background-color",
+            "color",
+            "border-color",
+            "border-width",
+            "border-radius",
+            "padding-left",
+            "padding-right",
+            "padding-top",
+            "padding-bottom",
+            "font-size",
+          ],
+        },
+        {
+          type: "tag",
+          selector:
+            '[class*="badge"], [class*="Badge"], [class*="tag"], [class*="Tag"], [class*="chip"], [class*="Chip"]',
+          props: [
+            "background-color",
+            "color",
+            "font-size",
+            "border-radius",
+            "padding-left",
+            "padding-right",
+          ],
+        },
+        {
+          type: "card",
+          selector:
+            'article, [class*="card"], [class*="Card"], [class*="item"], [class*="Item"]',
+          props: [
+            "background-color",
+            "border-radius",
+            "border-color",
+            "border-width",
+            "padding-top",
+            "padding-bottom",
+          ],
+        },
+      ];
+
+      for (const t of TARGETS) {
+        let candidates;
+        try {
+          candidates = document.querySelectorAll(t.selector);
+        } catch {
+          continue;
+        }
+        const sample = Array.from(candidates).slice(0, MAX_PER_TYPE);
+        for (const el of sample) {
+          collect(el, t.type, t.props);
+        }
+      }
+
+      return tokens;
+    },
+  });
+  return r?.[0]?.result ?? [];
+}
+
+// ===========================================================================
+// 유틸
+// ===========================================================================
 
 /**
  * Service Worker에서 Blob을 data URL로 변환.
