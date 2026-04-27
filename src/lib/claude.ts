@@ -47,7 +47,9 @@ async function tryModel(
         { role: "user", content: userContent },
       ],
       temperature: 0.1,
-      max_tokens: 1024,
+      // 1024는 너무 작아 토큰 리스트가 중간에 잘림 → JSON 파싱 실패 발생.
+      // Llama 3.x on Groq 최대 출력 한도가 8192.
+      max_tokens: 8192,
     }),
     timeoutPromise,
   ]);
@@ -238,22 +240,24 @@ function toKoreanError(msg: string): string {
  * 관대한 JSON 파서
  */
 export function parseJsonFromResponse<T>(text: string): T {
-  const trimmed = text.trim();
+  // 1) markdown 코드 펜스(```json ... ``` / ``` ... ```) 제거.
+  //    응답이 잘려서 닫는 펜스가 없는 경우도 있어 정규식 대신 단순 strip을 사용.
+  let s = text.trim();
+  // 시작 펜스 제거
+  s = s.replace(/^```(?:json|JSON)?\s*\n?/, "");
+  // 끝 펜스 제거 (있으면)
+  s = s.replace(/\n?```\s*$/, "");
+  s = s.trim();
 
+  // 2) 그대로 파싱 시도
   try {
-    return JSON.parse(trimmed);
+    return JSON.parse(s);
   } catch {}
 
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch {}
-  }
-
-  const arrayStart = trimmed.indexOf("[");
+  // 3) 배열 시작 위치 찾고 잘림 복구 시도
+  const arrayStart = s.indexOf("[");
   if (arrayStart !== -1) {
-    const arrayText = trimmed.slice(arrayStart);
+    const arrayText = s.slice(arrayStart);
     const repaired = repairTruncatedArray(arrayText);
     if (repaired) {
       try {
@@ -262,9 +266,10 @@ export function parseJsonFromResponse<T>(text: string): T {
     }
   }
 
-  const objectStart = trimmed.indexOf("{");
+  // 4) 객체 안에 배열이 들어있는 형태도 지원
+  const objectStart = s.indexOf("{");
   if (objectStart !== -1) {
-    const objText = trimmed.slice(objectStart);
+    const objText = s.slice(objectStart);
     try {
       const obj = JSON.parse(objText) as Record<string, unknown>;
       if (obj && typeof obj === "object") {
@@ -276,7 +281,7 @@ export function parseJsonFromResponse<T>(text: string): T {
     } catch {}
   }
 
-  const preview = trimmed.slice(0, 200);
+  const preview = s.slice(0, 200);
   throw new Error(`JSON 파싱 실패. 응답 미리보기: ${preview}...`);
 }
 
