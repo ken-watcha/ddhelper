@@ -158,6 +158,7 @@ export default function Home() {
           <ImplInput
             onTokensExtracted={setImplTokens}
             onCapturesReady={setStagingCaptures}
+            targetWidths={deriveCaptureWidths(activeFrameMeta)}
           />
         </div>
 
@@ -313,6 +314,28 @@ export default function Home() {
       </footer>
     </div>
   );
+}
+
+/**
+ * 활성 Figma 시안의 viewport에 맞는 캡처 너비를 결정.
+ * 시안 이름에 viewport 범위가 명시돼 있으면 그 범위에 들어가는 가장 큰 표준 width,
+ * 없으면 viewport 카테고리의 표준 width를 반환.
+ *
+ * 활성 시안이 없으면 undefined → ImplInput이 fallback (모바일+데스크톱) 사용.
+ */
+function deriveCaptureWidths(meta: ActiveFrameMeta | null): number[] | undefined {
+  if (!meta) return undefined;
+  const STANDARD = [375, 768, 1024, 1440];
+
+  if (meta.viewportRange) {
+    const { max } = meta.viewportRange;
+    // 범위 안에 들어가는 가장 큰 표준 width
+    for (let i = STANDARD.length - 1; i >= 0; i--) {
+      if (STANDARD[i] <= max) return [STANDARD[i]];
+    }
+    return [STANDARD[0]];
+  }
+  return [VIEWPORT_CAPTURE_WIDTHS[meta.viewport]];
 }
 
 /**

@@ -9,9 +9,9 @@ import {
 } from "@/lib/staging-client";
 import TokenPreview from "./TokenPreview";
 
-// 기본은 모바일 + 데스크톱 두 사이즈만 (속도 우선).
-// 더 많은 사이즈가 필요하면 Figma에 해당 시안이 있을 때 자동으로 늘림.
-const DEFAULT_VIEWPORTS = [
+// Figma 시안이 없을 때만 사용 — 모바일 + 데스크톱.
+// Figma 로드되면 그 시안의 width로만 캡처해 시간 절약.
+const FALLBACK_VIEWPORTS = [
   { width: 375, height: 800 },
   { width: 1024, height: 900 },
 ];
@@ -19,9 +19,15 @@ const DEFAULT_VIEWPORTS = [
 export default function ImplInput({
   onTokensExtracted,
   onCapturesReady,
+  targetWidths,
 }: {
   onTokensExtracted: (tokens: DesignToken[]) => void;
   onCapturesReady?: (captures: StagingCaptureItem[]) => void;
+  /**
+   * 캡처할 viewport 너비 목록 (Figma 시안이 로드돼 있을 때 그 사이즈만 캡처).
+   * undefined / 빈 배열이면 fallback 사용.
+   */
+  targetWidths?: number[];
 }) {
   const { info: extensionInfo, retry: retryExtension } = useExtensionInfo();
   const [webUrl, setWebUrl] = useState("");
@@ -40,6 +46,12 @@ export default function ImplInput({
 
   const handleAnalyze = async () => {
     if (!webUrl.trim()) return;
+
+    // Figma 시안 로드된 viewport만 캡처 — 시간 절약. 없으면 fallback 사용.
+    const viewports =
+      targetWidths && targetWidths.length > 0
+        ? targetWidths.map((width) => ({ width, height: 800 }))
+        : FALLBACK_VIEWPORTS;
 
     setLoading(true);
     setCapturesLoading(true);
@@ -64,7 +76,7 @@ export default function ImplInput({
         const data = await captureViaExtension(
           extensionInfo.id,
           webUrl,
-          DEFAULT_VIEWPORTS
+          viewports
         );
         setTokens(data.tokens);
         onTokensExtracted(data.tokens);

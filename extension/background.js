@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.3.1";
+const VERSION = "0.3.2";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -451,18 +451,25 @@ async function hideOverlayElements(tabId) {
 async function captureFullPageStitched(tabId, windowId, m) {
   const slices = [];
   const VIEWPORT_OVERLAP = 0;
-  const SCROLL_SETTLE_MS = 500; // 스크롤 후 lazy 콘텐츠 도착 대기
+  const SCROLL_SETTLE_MS = 400;
   const RATE_LIMIT_MS = 520;
 
-  // 안전 상한: 너무 긴 페이지는 일정 길이까지 (캔버스 한계 + 메모리)
-  const MAX_PAGE_HEIGHT = 30000;
+  // 안전 상한 — 디자인 QA 목적이라 페이지 전부 안 잡혀도 OK.
+  // 무한 스크롤 페이지에서도 일정 시간 안에 끝남.
+  const MAX_PAGE_HEIGHT = 12000;
+  const MAX_TIME_MS = 30000; // viewport당 30초 하드 캡
+  const startedAt = Date.now();
 
   // 동적 페이지 높이 — 스크롤하면서 lazy 콘텐츠로 자라면 재측정해 늘림
   let pageHeight = Math.min(m.scrollHeight, MAX_PAGE_HEIGHT);
 
   let y = 0;
   let safety = 0;
-  while (y < pageHeight && safety < 80) {
+  while (
+    y < pageHeight &&
+    safety < 80 &&
+    Date.now() - startedAt < MAX_TIME_MS
+  ) {
     safety++;
     const maxScrollY = Math.max(0, pageHeight - m.clientHeight);
     const scrollY = Math.min(y, maxScrollY);
@@ -516,8 +523,9 @@ async function captureFullPageStitched(tabId, windowId, m) {
     await sleep(RATE_LIMIT_MS);
   }
 
+  const elapsed = Math.round((Date.now() - startedAt) / 100) / 10;
   console.log(
-    `[capture] captured ${slices.length} slices, page=${pageHeight}, stitching...`
+    `[capture] captured ${slices.length} slices in ${elapsed}s, page=${pageHeight}, stitching...`
   );
   return await stitchSlices(slices, m, pageHeight);
 }
