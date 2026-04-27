@@ -76,7 +76,8 @@ export default function ImplInput({
         const data = await captureViaExtension(
           extensionInfo.id,
           webUrl,
-          viewports
+          viewports,
+          extensionInfo.version
         );
         setTokens(data.tokens);
         onTokensExtracted(data.tokens);

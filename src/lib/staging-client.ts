@@ -103,10 +103,28 @@ export interface ExtensionCaptureResult {
  * 토큰 추출은 첫 viewport에서 1회만 실행 (DOM 구조는 viewport마다 거의 같음).
  * AI 호출 없이 DOM의 computed style을 직접 읽어 토큰화 → rate limit 부담 0.
  */
+/**
+ * 버전 문자열 비교 — "0.4.0" >= "0.3.5" 같은 비교
+ */
+function versionGte(a: string, b: string): boolean {
+  const ap = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const bp = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+    const av = ap[i] || 0;
+    const bv = bp[i] || 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return true;
+}
+
+const REQUIRED_EXT_VERSION = "0.4.0";
+
 export async function captureViaExtension(
   extensionId: string,
   url: string,
-  viewports: { width: number; height: number }[]
+  viewports: { width: number; height: number }[],
+  extensionVersion?: string
 ): Promise<ExtensionCaptureResult> {
   if (typeof window === "undefined") {
     throw new Error("브라우저 환경이 아닙니다");
@@ -116,6 +134,15 @@ export async function captureViaExtension(
   if (!connect) {
     throw new Error(
       "크롬 환경이 아니거나 확장 API에 접근할 수 없습니다 (Chrome 브라우저로 접속해주세요)"
+    );
+  }
+
+  // 확장 버전 검사 — 새 포트 프로토콜은 v0.4.0+ 만 지원
+  if (extensionVersion && !versionGte(extensionVersion, REQUIRED_EXT_VERSION)) {
+    throw new Error(
+      `DDhelper Capture 확장이 옛날 버전(v${extensionVersion})이라 동작하지 않아요. ` +
+        `[chrome://extensions]에서 새로고침(↻)하면 v${REQUIRED_EXT_VERSION} 이상으로 갱신됩니다. ` +
+        `이미 새로고침했다면 이 페이지를 Cmd+Shift+R로 강제 새로고침해주세요.`
     );
   }
 
