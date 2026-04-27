@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -197,11 +197,8 @@ async function captureSingle(url, viewport, doExtractTokens) {
     // 2) 안정화 짧게
     await sleep(400);
 
-    // 3) sticky/fixed 헤더·푸터 숨김 — 슬라이스마다 헤더 중복 찍히는 문제 방지
-    await hideOverlayElements(tab.id);
-    await sleep(200);
-
-    // 5) 페이지 사이즈 측정 (오버레이 숨긴 후 최종 레이아웃 기준)
+    // 3) 페이지 사이즈 측정 (오버레이 숨김은 스티칭 첫 슬라이스 후로 미룸 →
+    //    GNB가 첫 슬라이스에는 정상으로 보이고, 두 번째부터만 숨겨져 중복 방지)
     const m = await measurePage(tab.id, viewport);
 
     // 6) 토큰 추출 (요청한 경우만) — 캡처 전에 실행해야 오버레이는 visibility:hidden이지만
@@ -509,6 +506,7 @@ async function captureFullPageStitched(tabId, windowId, m) {
 
   let y = 0;
   let safety = 0;
+  let overlaysHidden = false; // 첫 슬라이스 후 GNB 등 sticky/fixed 숨김
   while (
     y < pageHeight &&
     safety < 80 &&
@@ -538,6 +536,15 @@ async function captureFullPageStitched(tabId, windowId, m) {
       });
     }
     slices.push({ dataUrl, scrollY });
+
+    // 첫 슬라이스 캡처 후, sticky/fixed (GNB 등) 숨김 →
+    // 이후 슬라이스마다 GNB가 viewport 상단에 중복으로 안 찍힘
+    if (!overlaysHidden) {
+      await hideOverlayElements(tabId);
+      overlaysHidden = true;
+      // 짧게 안정화 (visibility 변경 직후 layout flush)
+      await sleep(150);
+    }
 
     // 다음 위치 계산
     const nextY = scrollY + m.clientHeight - VIEWPORT_OVERLAP;
