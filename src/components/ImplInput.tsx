@@ -245,7 +245,7 @@ export default function ImplInput({
       <button
         onClick={handleAnalyze}
         disabled={isDisabled}
-        className="mt-4 px-6 py-3 bg-white text-black rounded-full text-[13px] font-bold hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+        className="mt-4 px-6 py-3 bg-white text-black rounded text-[13px] font-bold hover:bg-neutral-100 active:bg-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
       >
         {loading ? (
           <>
