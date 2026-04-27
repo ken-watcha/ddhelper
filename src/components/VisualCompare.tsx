@@ -110,13 +110,13 @@ export default function VisualCompare({
     return list;
   }, [issues]);
 
-  // 컨테이너 크기에 맞춰 이미지 스케일 계산
+  // 컨테이너 크기에 맞춰 이미지 스케일 계산.
+  // 좌우 동일 너비 비교를 위해 cap 제거 — 좁은 시안도 컬럼 폭으로 확대.
   useEffect(() => {
     const updateScale = () => {
       if (!containerRef.current) return;
       const containerWidth = containerRef.current.clientWidth;
-      const s = containerWidth / frame.frameWidth;
-      setScale(Math.min(s, 1));
+      setScale(containerWidth / frame.frameWidth);
     };
     updateScale();
     window.addEventListener("resize", updateScale);
@@ -176,8 +176,7 @@ export default function VisualCompare({
       {/* 좌: Figma 시안 + 마커 오버레이 */}
       <div
         ref={containerRef}
-        className="relative mx-auto overflow-hidden rounded-xl border border-white/10 bg-[#0A0A0A] w-full"
-        style={{ maxWidth: frame.frameWidth }}
+        className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0A0A0A] w-full"
       >
         {/* 라벨 헤더 띠 — 이미지 위에 항상 표시 */}
         <div className="absolute top-0 left-0 right-0 z-20 px-3 py-2 flex items-center justify-between bg-gradient-to-b from-black/85 via-black/50 to-transparent pointer-events-none">
@@ -284,8 +283,7 @@ export default function VisualCompare({
       {/* 우: 스테이징 캡처 */}
       {hasStaging && stagingCapture?.capture && (
         <div
-          className="relative mx-auto overflow-hidden rounded-xl border border-white/10 bg-[#0A0A0A] w-full"
-          style={{ maxWidth: stagingCapture.viewport.width }}
+          className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0A0A0A] w-full"
         >
           {/* 라벨 헤더 띠 */}
           <div className="absolute top-0 left-0 right-0 z-20 px-3 py-2 flex items-center justify-between bg-gradient-to-b from-black/85 via-black/50 to-transparent pointer-events-none">
