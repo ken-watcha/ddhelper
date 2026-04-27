@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -142,36 +142,32 @@ async function captureSingle(url, viewport) {
     // 3) 마지막 안정화 대기 (애니메이션/페이드인 마무리)
     await sleep(1200);
 
-    // 보이는 영역 캡처 (PNG data URL)
-    const imageDataUrl = await chrome.tabs.captureVisibleTab(win.id, {
-      format: "png",
-    });
+    // 4) sticky/fixed 헤더·푸터 숨김 — 안 그러면 슬라이스 위에 매번 같은 헤더가 찍혀서
+    //    이어붙였을 때 헤더가 페이지 중간 중간 반복돼 보임
+    await hideOverlayElements(tab.id);
+    await sleep(300);
 
-    // 페이지 실제 사이즈 측정 (스크롤 포함)
-    let dimensions = { width: viewport.width, height: viewport.height };
-    try {
-      const injectionResults = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => ({
-          width: document.documentElement.clientWidth,
-          height: Math.max(
-            document.body?.scrollHeight ?? 0,
-            document.documentElement.scrollHeight,
-            document.documentElement.clientHeight
-          ),
-        }),
+    // 5) 페이지 사이즈 측정 (오버레이 숨긴 후 최종 레이아웃 기준)
+    const m = await measurePage(tab.id, viewport);
+
+    // 6) 페이지가 한 화면에 다 들어가면 단일 캡처, 아니면 스크롤·스티칭
+    const needsStitch = m.scrollHeight > m.clientHeight + 30;
+
+    let imageDataUrl;
+    if (!needsStitch) {
+      console.log(`[capture ${viewport.width}px] single shot ${m.clientWidth}x${m.scrollHeight}`);
+      imageDataUrl = await chrome.tabs.captureVisibleTab(win.id, {
+        format: "png",
       });
-      if (injectionResults && injectionResults[0]?.result) {
-        dimensions = injectionResults[0].result;
-      }
-    } catch {
-      // dimension 측정 실패해도 캡처는 그대로 반환
+    } else {
+      console.log(`[capture ${viewport.width}px] stitching ${m.clientWidth}x${m.scrollHeight} (viewport ${m.clientHeight})`);
+      imageDataUrl = await captureFullPageStitched(tab.id, win.id, m);
     }
 
     return {
       imageDataUrl,
-      pageWidth: dimensions.width,
-      pageHeight: dimensions.height,
+      pageWidth: m.clientWidth,
+      pageHeight: m.scrollHeight,
     };
   } finally {
     // 창 닫기
@@ -357,4 +353,173 @@ function waitForTabComplete(tabId, timeoutMs) {
       if (tab.status === "complete") finish(() => resolve());
     }).catch(() => {});
   });
+}
+
+// ===========================================================================
+// 풀 페이지 캡처 (스크롤 + 스티칭)
+// ===========================================================================
+
+/**
+ * 페이지의 실제 width / scrollHeight / clientHeight 측정.
+ */
+async function measurePage(tabId, fallbackViewport) {
+  try {
+    const r = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => ({
+        clientWidth: document.documentElement.clientWidth,
+        clientHeight: document.documentElement.clientHeight,
+        scrollHeight: Math.max(
+          document.body?.scrollHeight ?? 0,
+          document.documentElement.scrollHeight,
+          document.documentElement.clientHeight
+        ),
+      }),
+    });
+    if (r && r[0]?.result) return r[0].result;
+  } catch {
+    // ignore
+  }
+  return {
+    clientWidth: fallbackViewport.width,
+    clientHeight: fallbackViewport.height,
+    scrollHeight: fallbackViewport.height,
+  };
+}
+
+/**
+ * sticky / fixed 요소 숨김 — 스크롤 캡처 시 매 슬라이스에 헤더가 중복으로
+ * 찍히는 문제를 막기 위함. visibility:hidden을 쓰면 레이아웃은 유지되고
+ * 자리만 비어서 스크롤 위치가 어긋나지 않음.
+ */
+async function hideOverlayElements(tabId) {
+  try {
+    const r = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        let count = 0;
+        const all = document.querySelectorAll("*");
+        for (const el of all) {
+          const cs = window.getComputedStyle(el);
+          if (cs.position === "fixed" || cs.position === "sticky") {
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            el.style.setProperty("visibility", "hidden", "important");
+            count++;
+          }
+        }
+        return count;
+      },
+    });
+    console.log(`[capture] hidden ${r?.[0]?.result ?? 0} sticky/fixed elements`);
+  } catch {
+    // ignore — 숨김 실패해도 캡처는 진행
+  }
+}
+
+/**
+ * 페이지를 viewport 높이만큼 단계적으로 스크롤하면서 한 장씩 captureVisibleTab,
+ * OffscreenCanvas로 이어붙여 한 장의 PNG로 반환.
+ *
+ * Chrome captureVisibleTab은 초당 ~2회 제한이 있어 슬라이스마다 550ms 대기.
+ */
+async function captureFullPageStitched(tabId, windowId, m) {
+  const slices = [];
+  const VIEWPORT_OVERLAP = 0; // 슬라이스 간 겹침 (필요 시 늘림)
+  const SCROLL_SETTLE_MS = 700;
+  const RATE_LIMIT_MS = 550;
+
+  // 안전 상한: 너무 긴 페이지는 일정 길이까지만 (캔버스 한계 + 메모리)
+  const MAX_PAGE_HEIGHT = 18000;
+  const effectivePageHeight = Math.min(m.scrollHeight, MAX_PAGE_HEIGHT);
+
+  let y = 0;
+  let safety = 0;
+  while (y < effectivePageHeight && safety < 60) {
+    safety++;
+    // 마지막 슬라이스는 페이지 바닥에 앵커 (y가 마지막 한 화면을 못 다 덮으면 끌어올림)
+    const maxScrollY = Math.max(0, effectivePageHeight - m.clientHeight);
+    const scrollY = Math.min(y, maxScrollY);
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (sy) => window.scrollTo(0, sy),
+      args: [scrollY],
+    });
+    await sleep(SCROLL_SETTLE_MS);
+
+    let dataUrl;
+    try {
+      dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+        format: "png",
+      });
+    } catch (e) {
+      // rate limit 등 — 살짝 기다렸다 재시도 1회
+      console.warn("[capture] captureVisibleTab failed, retrying:", e);
+      await sleep(800);
+      dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+        format: "png",
+      });
+    }
+    slices.push({ dataUrl, scrollY });
+
+    if (scrollY >= maxScrollY) break;
+    y = scrollY + m.clientHeight - VIEWPORT_OVERLAP;
+    await sleep(RATE_LIMIT_MS);
+  }
+
+  console.log(`[capture] captured ${slices.length} slices, stitching...`);
+  return await stitchSlices(slices, m, effectivePageHeight);
+}
+
+/**
+ * 슬라이스 PNG 데이터 URL들을 OffscreenCanvas에 그려 한 장으로 합침.
+ * captureVisibleTab은 device pixel ratio가 적용된 이미지를 반환하므로
+ * 첫 비트맵의 width / clientWidth로 scale을 계산해 캔버스 크기를 맞춘다.
+ */
+async function stitchSlices(slices, m, pageHeight) {
+  if (slices.length === 0) throw new Error("스티칭할 슬라이스 없음");
+
+  const bitmaps = [];
+  for (const s of slices) {
+    const blob = await (await fetch(s.dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    bitmaps.push({ bitmap, scrollY: s.scrollY });
+  }
+
+  const first = bitmaps[0].bitmap;
+  const scale = first.width / m.clientWidth; // 보통 1 또는 DPR (2)
+
+  const canvasWidth = first.width;
+  const canvasHeight = Math.round(pageHeight * scale);
+
+  const canvas = new OffscreenCanvas(canvasWidth, canvasHeight);
+  const ctx = canvas.getContext("2d");
+
+  for (const { bitmap, scrollY } of bitmaps) {
+    ctx.drawImage(bitmap, 0, Math.round(scrollY * scale));
+    bitmap.close();
+  }
+
+  const blob = await canvas.convertToBlob({ type: "image/png" });
+  return await blobToDataUrl(blob);
+}
+
+/**
+ * Service Worker에서 Blob을 data URL로 변환.
+ * FileReader는 SW에서 호환 이슈가 있을 수 있어 ArrayBuffer + btoa 직접 사용.
+ */
+async function blobToDataUrl(blob) {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(
+      null,
+      bytes.subarray(i, i + CHUNK)
+    );
+  }
+  const base64 = btoa(binary);
+  return `data:${blob.type || "image/png"};base64,${base64}`;
 }
