@@ -6,6 +6,7 @@ import { postJson } from "@/lib/fetcher";
 import {
   useExtensionInfo,
   captureViaExtension,
+  pingExtension,
 } from "@/lib/staging-client";
 import TokenPreview from "./TokenPreview";
 
@@ -43,6 +44,19 @@ export default function ImplInput({
     "extension" | "server" | null
   >(null);
   const [error, setError] = useState("");
+  const [pingResult, setPingResult] = useState<string | null>(null);
+
+  const handleTestExtension = async () => {
+    if (!extensionInfo) return;
+    setPingResult("테스트 중...");
+    const r = await pingExtension(extensionInfo.id);
+    if (r.ok) {
+      setPingResult(`✓ SW 응답 OK (v${r.version})`);
+    } else {
+      setPingResult(`✗ ${r.error}`);
+    }
+    setTimeout(() => setPingResult(null), 8000);
+  };
 
   const handleAnalyze = async () => {
     if (!webUrl.trim()) return;
@@ -168,13 +182,34 @@ export default function ImplInput({
               스테이징
             </h3>
             {extensionInfo ? (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#22C55E]/15 text-[#22C55E]"
-                title={`DDhelper Capture v${extensionInfo.version} 연결됨`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
-                확장 v{extensionInfo.version}
-              </span>
+              <>
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#22C55E]/15 text-[#22C55E]"
+                  title={`DDhelper Capture v${extensionInfo.version} 연결됨`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
+                  확장 v{extensionInfo.version}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleTestExtension}
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white/[0.06] text-neutral-400 hover:text-white hover:bg-white/[0.1] transition-colors"
+                  title="확장 service worker 응답 테스트"
+                >
+                  테스트
+                </button>
+                {pingResult && (
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${
+                      pingResult.startsWith("✓")
+                        ? "bg-[#22C55E]/15 text-[#22C55E]"
+                        : "bg-[#EF4444]/15 text-[#EF4444]"
+                    }`}
+                  >
+                    {pingResult}
+                  </span>
+                )}
+              </>
             ) : (
               <span
                 className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white/[0.06] text-neutral-500"

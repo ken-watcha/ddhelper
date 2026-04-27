@@ -120,6 +120,51 @@ function versionGte(a: string, b: string): boolean {
 
 const REQUIRED_EXT_VERSION = "0.4.0";
 
+/**
+ * 확장에 ping 한 번 던져 service worker 응답 여부 확인.
+ * 캡처 시작 전에 호출해서 SW가 살아있는지 빠르게 검증.
+ */
+export async function pingExtension(
+  extensionId: string
+): Promise<{ ok: boolean; version?: string; error?: string }> {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "브라우저 환경 아님" };
+  }
+  const w = window as unknown as ChromeRuntimeWindow;
+  const sendMessage = w.chrome?.runtime?.sendMessage;
+  if (!sendMessage) {
+    return { ok: false, error: "Chrome 확장 API 접근 불가" };
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, error: "확장 응답 없음 (5초 timeout)" });
+    }, 5000);
+
+    sendMessage(extensionId, { action: "ping" }, (response: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const lastError = w.chrome?.runtime?.lastError;
+      if (lastError) {
+        resolve({ ok: false, error: lastError.message || "통신 실패" });
+        return;
+      }
+      const r = response as
+        | { ok: boolean; version?: string; error?: string }
+        | undefined;
+      if (!r || !r.ok) {
+        resolve({ ok: false, error: r?.error || "ping 실패" });
+        return;
+      }
+      resolve({ ok: true, version: r.version });
+    });
+  });
+}
+
 export async function captureViaExtension(
   extensionId: string,
   url: string,
