@@ -384,6 +384,68 @@ export default function FigmaInput({
             )}
           </div>
 
+          {/* 로그인 / 비로그인 빠른 토글 — 양쪽 모두 시안이 있을 때만 표시 */}
+          {(() => {
+            const positiveFrames = frames.filter(
+              (f) => frameLoginRank(f.name, f.sectionName) === 0
+            );
+            const negativeFrames = frames.filter(
+              (f) => frameLoginRank(f.name, f.sectionName) === 2
+            );
+            const hasBothLoginStates =
+              positiveFrames.length > 0 && negativeFrames.length > 0;
+            if (!hasBothLoginStates || !activeFrame) return null;
+
+            const activeRank = frameLoginRank(
+              activeFrame.name,
+              activeFrame.sectionName
+            );
+
+            const switchTo = (rank: 0 | 2) => {
+              const pool = rank === 0 ? positiveFrames : negativeFrames;
+              if (pool.length === 0) return;
+              // 같은 viewport 카테고리 시안을 우선, 없으면 같은 너비, 그것도 없으면 첫 시안
+              const sameViewport = pool.find(
+                (f) => f.viewport === activeFrame.viewport
+              );
+              const sameWidth = pool.find(
+                (f) => Math.abs(f.width - activeFrame.width) <= 1
+              );
+              const target = sameViewport || sameWidth || pool[0];
+              setActive(target);
+            };
+
+            return (
+              <div className="mt-5">
+                <p className="text-[11px] text-neutral-500 uppercase tracking-wider font-bold mb-2">
+                  케이스
+                </p>
+                <div className="inline-flex p-1 bg-[#1C1C1C] border border-white/[0.06] rounded-xl">
+                  <button
+                    onClick={() => switchTo(0)}
+                    className={`px-4 py-2 rounded-lg text-[12px] font-bold transition-all ${
+                      activeRank === 0
+                        ? "bg-[#FF0558] text-white shadow-lg"
+                        : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    로그인 케이스
+                  </button>
+                  <button
+                    onClick={() => switchTo(2)}
+                    className={`px-4 py-2 rounded-lg text-[12px] font-bold transition-all ${
+                      activeRank === 2
+                        ? "bg-[#FF0558] text-white shadow-lg"
+                        : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    비로그인 케이스
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* SECTION별 그룹화된 viewport 칩 (멀티 프레임일 때만) */}
           {isMulti && (
             <div className="mt-5 space-y-3">
