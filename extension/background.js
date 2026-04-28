@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.5.2";
+const VERSION = "0.5.3";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -197,6 +197,17 @@ async function captureSingle(url, viewport, doExtractTokens) {
     }
   };
 
+  // 1) 메인 브라우저에 동일 origin (watcha.com) 탭이 있으면 거기서 localStorage 읽어옴.
+  //    Watcha 같은 SPA는 보통 로그인 토큰을 localStorage에 저장하는데, popup window는
+  //    빈 localStorage로 시작할 수 있어 미로그인 상태로 나옴. 미리 읽어두고 popup에 주입.
+  setStage("reading-session");
+  const sourceLocalStorage = await readSessionFromExistingTab(url);
+  console.log(
+    `[session] picked up ${
+      Object.keys(sourceLocalStorage).length
+    } localStorage keys from existing tab`
+  );
+
   setStage("creating-window");
   const win = await chrome.windows.create({
     url,
@@ -216,7 +227,22 @@ async function captureSingle(url, viewport, doExtractTokens) {
   try {
     setStage("waiting-tab-load");
     await waitForTabComplete(tab.id, 20000);
-    await sleep(1000);
+    await sleep(500);
+
+    // 2) localStorage 주입 후 새로고침 → 로그인 상태로 페이지 다시 로드
+    if (Object.keys(sourceLocalStorage).length > 0) {
+      setStage("injecting-session");
+      try {
+        await injectLocalStorage(tab.id, sourceLocalStorage);
+        // 페이지 새로고침해서 인증 상태 반영
+        await chrome.tabs.reload(tab.id);
+        await waitForTabComplete(tab.id, 15000);
+        await sleep(500);
+        console.log("[session] injected and reloaded");
+      } catch (e) {
+        console.warn("[session] injection failed:", e);
+      }
+    }
 
     setStage("waiting-content");
     await waitForContent(tab.id, 8000);
@@ -663,6 +689,85 @@ async function stitchSlices(slices, m, pageHeight) {
 
   const blob = await canvas.convertToBlob({ type: "image/png" });
   return await blobToDataUrl(blob);
+}
+
+// ===========================================================================
+// 메인 브라우저 세션 카피 — popup window에 로그인 상태 주입
+// ===========================================================================
+
+/**
+ * 사용자가 원래 열어둔 탭들 중 같은 origin(예: watcha.com)인 탭을 찾아
+ * 그 탭의 localStorage 전체를 읽어옴. 비로그인 popup에 주입할 용도.
+ */
+async function readSessionFromExistingTab(targetUrl) {
+  let origin;
+  try {
+    origin = new URL(targetUrl).origin;
+  } catch {
+    return {};
+  }
+
+  const queryUrl = `${origin}/*`;
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({ url: queryUrl });
+  } catch {
+    return {};
+  }
+  if (!tabs || tabs.length === 0) return {};
+
+  // 가장 최근 활성 탭 우선
+  const sorted = [...tabs].sort(
+    (a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0)
+  );
+
+  for (const t of sorted) {
+    if (!t.id) continue;
+    try {
+      const r = await chrome.scripting.executeScript({
+        target: { tabId: t.id },
+        func: () => {
+          const out = {};
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key !== null) {
+                out[key] = localStorage.getItem(key) ?? "";
+              }
+            }
+          } catch {
+            // 일부 사이트는 localStorage 차단 — 무시
+          }
+          return out;
+        },
+      });
+      const data = r?.[0]?.result ?? {};
+      if (Object.keys(data).length > 0) return data;
+    } catch {
+      // 다음 탭 시도
+      continue;
+    }
+  }
+  return {};
+}
+
+/**
+ * popup tab의 localStorage에 외부 데이터 주입.
+ */
+async function injectLocalStorage(tabId, data) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (incoming) => {
+      try {
+        for (const [k, v] of Object.entries(incoming)) {
+          localStorage.setItem(k, v);
+        }
+      } catch {
+        // 차단 시 무시
+      }
+    },
+    args: [data],
+  });
 }
 
 // ===========================================================================
