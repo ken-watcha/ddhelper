@@ -123,7 +123,7 @@ export default function Home() {
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FF0558]/10 border border-[#FF0558]/20 mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-[#FF0558] watcha-pulse" />
             <span className="text-xs font-bold text-[#FF0558] tracking-wide">
-              AI DESIGN QA
+              DESIGN QA AUTOMATION
             </span>
           </div>
           <h2 className="text-4xl md:text-5xl font-black text-white tracking-tight leading-[1.1]">
@@ -132,7 +132,7 @@ export default function Home() {
             <span className="text-white">하세요</span>
           </h2>
           <p className="mt-5 text-base text-neutral-400 leading-relaxed max-w-xl">
-            피그마 시안과 스테이징에 배포된 웹/앱의 디자인 불일치를 AI가 찾아줍니다. 아이콘 크기,
+            피그마 시안과 스테이징에 배포된 웹의 디자인 불일치를 자동으로 찾아드려요. 아이콘 크기,
             컬러, 간격까지 하나씩 수동으로 확인할 필요 없어요.
           </p>
         </div>
@@ -317,7 +317,7 @@ export default function Home() {
               Built by Watcha Product Design Team
             </p>
           </div>
-          <p className="text-xs text-neutral-600">Figma API · Groq Llama</p>
+          <p className="text-xs text-neutral-600">Figma API · Chrome Extension · 코드 직접 매칭</p>
         </div>
       </footer>
     </div>

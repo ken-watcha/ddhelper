@@ -33,10 +33,10 @@ export default function AnalysisCriteria({
           </div>
           <div className="text-left">
             <h4 className="text-sm font-bold text-white">
-              AI가 어떤 기준으로 분석했나요?
+              어떤 기준으로 분석했나요?
             </h4>
             <p className="text-[12px] text-neutral-500 mt-0.5">
-              매칭 규칙, 심각도 기준을 투명하게 공개합니다
+              매칭 규칙, 심각도 기준을 투명하게 공개합니다 (코드 직접 매칭)
             </p>
           </div>
         </div>
@@ -91,7 +91,7 @@ export default function AnalysisCriteria({
           {/* 2. 요소 타입 분류 */}
           <Section title="2. 요소 타입 분류 기준" icon="🏷️">
             <p className="text-[13px] text-neutral-400 leading-relaxed mb-3">
-              AI는 각 요소를 10가지 중 하나로 분류하고, 타입별 정해진 속성만
+              각 요소를 10가지 중 하나로 분류하고, 타입별 정해진 속성만
               추출합니다.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -228,7 +228,7 @@ export default function AnalysisCriteria({
           {hasCatalog && (
             <Section title="5. 디자인 시스템 카탈로그 활용" icon="📚">
               <p className="text-[13px] text-neutral-400 leading-relaxed mb-3">
-                이 비교에는 피그마의 공식 디자인 시스템 토큰이 포함되어 있어요. AI가 추가로:
+                이 비교에는 피그마의 공식 디자인 시스템 토큰이 포함되어 있어요. 추가로:
               </p>
               <ul className="space-y-2 text-[13px] text-neutral-300">
                 <li className="flex gap-2">
@@ -252,11 +252,11 @@ export default function AnalysisCriteria({
             <ul className="space-y-2 text-[13px] text-neutral-400">
               <li className="flex gap-2">
                 <span className="text-neutral-600 shrink-0">·</span>
-                <span>AI가 요소 타입을 잘못 분류할 수 있음 (예: 작은 버튼을 tag로 판정)</span>
+                <span>휴리스틱 분류라 요소 타입을 잘못 분류할 수 있음 (예: 작은 버튼을 tag로 판정)</span>
               </li>
               <li className="flex gap-2">
                 <span className="text-neutral-600 shrink-0">·</span>
-                <span>이름 매칭이 AI의 주관적 판단에 의존</span>
+                <span>이름 매칭은 토큰 단위 Jaccard 유사도라 의미가 다른 같은 단어에 약함</span>
               </li>
               <li className="flex gap-2">
                 <span className="text-neutral-600 shrink-0">·</span>
@@ -269,10 +269,10 @@ export default function AnalysisCriteria({
             </ul>
           </Section>
 
-          {/* 모델 정보 */}
+          {/* 분석 방식 */}
           <div className="pt-3 border-t border-white/[0.04]">
             <p className="text-[11px] text-neutral-600">
-              분석 모델: Llama 3.3 70B (Groq) · 온도 0.1 (결정적 응답)
+              분석 방식: AI 호출 없이 코드 직접 매칭 (Figma 노드 트리·DOM computed style 직독)
             </p>
           </div>
         </div>

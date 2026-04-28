@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.5.3";
+const VERSION = "0.5.4";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
