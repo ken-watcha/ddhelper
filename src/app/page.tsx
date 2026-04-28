@@ -278,6 +278,8 @@ export default function Home() {
                       ? findMatchingCapture(stagingCaptures, activeFrameMeta)
                       : null
                   }
+                  sectionName={activeFrameMeta?.sectionName}
+                  frameName={activeFrameMeta?.name}
                 />
               ) : viewMode === "visual" && !frame ? (
                 <div className="space-y-4">

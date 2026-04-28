@@ -57,10 +57,14 @@ export default function VisualCompare({
   results,
   frame,
   stagingCapture,
+  sectionName,
+  frameName,
 }: {
   results: ComparisonResult[];
   frame: FigmaFrameInfo;
   stagingCapture?: StagingCaptureItem | null;
+  sectionName?: string | null;
+  frameName?: string | null;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -179,13 +183,23 @@ export default function VisualCompare({
         className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0A0A0A] w-full"
       >
         {/* 라벨 헤더 띠 — 이미지 위에 항상 표시 */}
-        <div className="absolute top-0 left-0 right-0 z-20 px-3 py-2 flex items-center justify-between bg-gradient-to-b from-black/85 via-black/50 to-transparent pointer-events-none">
+        <div className="absolute top-0 left-0 right-0 z-20 px-3 py-2 flex items-center justify-start gap-1.5 flex-wrap bg-gradient-to-b from-black/85 via-black/50 to-transparent pointer-events-none">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FF0558] text-white text-[11px] font-bold shadow-lg">
             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
               <path d="M8.5 0A4.5 4.5 0 004 4.5 4.5 4.5 0 008.5 9H12V0H8.5zm3.5 9h3.5a4.5 4.5 0 100-9H12v9zm0 0v6a4.5 4.5 0 104.5-4.5H12V9zm0 6A4.5 4.5 0 107.5 19.5 4.5 4.5 0 0012 15v-0zM8.5 9a4.5 4.5 0 100 9H12V9H8.5z" />
             </svg>
             Figma 디자인
           </span>
+          {sectionName && (
+            <span className="inline-flex items-center px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm text-white text-[10px] font-bold shadow-lg max-w-[60%] truncate">
+              {sectionName}
+            </span>
+          )}
+          {frameName && (
+            <span className="inline-flex items-center px-2 py-1 rounded-md bg-white/10 backdrop-blur-sm text-white/90 text-[10px] font-medium shadow-lg max-w-[40%] truncate">
+              {frameName}
+            </span>
+          )}
         </div>
         <div
           className="relative"
