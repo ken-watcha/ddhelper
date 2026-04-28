@@ -12,7 +12,7 @@
  *      → { ok: true, results: [{ viewport, capture: { imageDataUrl, pageWidth, pageHeight } | null, error?: string }] }
  */
 
-const VERSION = "0.5.1";
+const VERSION = "0.5.2";
 
 console.log("[DDhelper Capture] background service worker loaded");
 
@@ -719,15 +719,50 @@ async function extractTokensFromTab(tabId) {
         return "spacing";
       };
 
+      // 디자이너가 보고 어떤 요소인지 알 수 있도록 풍부한 이름을 만듦.
+      // 예) 'button.OqObV "감상하기"', 'h2 "왓챠 최고 인기작"', 'a[aria-label="검색"]'
       const elementName = (el) => {
-        // 의미 있는 이름: 첫 클래스 (너무 길면 짤라서) 또는 태그명
-        if (typeof el.className === "string" && el.className.trim()) {
-          const first = el.className.trim().split(/\s+/)[0];
-          if (first && first.length <= 40) return "." + first;
-        }
+        const tag = el.tagName.toLowerCase();
+
+        // aria-label 우선 (의미가 가장 명확함)
+        const aria = el.getAttribute("aria-label");
         const role = el.getAttribute("role");
-        if (role) return `${el.tagName.toLowerCase()}[role=${role}]`;
-        return el.tagName.toLowerCase();
+
+        // 클래스 — 의미 있는(영문 단어 + 6자 이상 또는 dash 포함) 클래스 우선,
+        // hash성 (5~6자 짧은 영문/숫자 혼합)도 일단 포함
+        let classPart = "";
+        if (typeof el.className === "string" && el.className.trim()) {
+          const classes = el.className.trim().split(/\s+/);
+          // 의미 있는 클래스 우선 검색
+          const meaningful = classes.find(
+            (c) =>
+              c.length > 6 &&
+              (c.includes("-") || c.includes("_") || /[A-Z]/.test(c))
+          );
+          const chosen =
+            meaningful || (classes[0] && classes[0].length <= 40 ? classes[0] : "");
+          if (chosen) classPart = "." + chosen;
+        }
+
+        // 텍스트 미리보기 — heading/button/text 등 텍스트 요소에 유용
+        const rawText = (el.innerText || el.textContent || "")
+          .trim()
+          .replace(/\s+/g, " ");
+        const textPreview = rawText.length > 0 ? rawText.slice(0, 25) : "";
+        const ellipsis = rawText.length > 25 ? "…" : "";
+
+        // 우선순위로 조립
+        let result = tag;
+        if (aria) {
+          result += `[aria-label="${aria.slice(0, 30)}"]`;
+        } else {
+          if (classPart) result += classPart;
+          if (role) result += `[role=${role}]`;
+        }
+        if (textPreview && !aria) {
+          result += ` "${textPreview}${ellipsis}"`;
+        }
+        return result;
       };
 
       const isTransparent = (v) =>
