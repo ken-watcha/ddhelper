@@ -12,6 +12,26 @@ import {
 import { postJson } from "@/lib/fetcher";
 import TokenPreview from "./TokenPreview";
 
+/**
+ * SECTION 이름으로 로그인 케이스 우선순위 결정.
+ * 0 = 로그인 케이스 (가장 위), 1 = 중립, 2 = 비로그인 (가장 아래).
+ *
+ * 스테이징은 보통 본인 세션으로 로그인된 상태이므로, 로그인 케이스 시안을
+ * 자동 우선 노출 → 디자이너가 케이스 chip 일일이 클릭하지 않아도 비교 가능.
+ */
+function sectionLoginRank(name: string | null): number {
+  if (!name) return 1;
+  const s = name.toLowerCase();
+  // '비로그인'은 '로그인'을 부분 문자열로 가지므로 먼저 체크
+  if (s.includes("비로그인") || s.includes("비 로그인") || s.includes("비-로그인")) {
+    return 2;
+  }
+  if (s.includes("로그인") || s.includes("login") || s.includes("signed in")) {
+    return 0;
+  }
+  return 1;
+}
+
 interface ActiveFrameMeta {
   frameId: string;
   name: string;
@@ -88,12 +108,19 @@ export default function FigmaInput({
         foundationUrl: foundationUrl.trim() || undefined,
       });
 
-      const list = data.frames || [];
+      const rawList = data.frames || [];
+      // SECTION 이름 기반 자동 우선순위 — 스테이징은 보통 로그인 상태이므로
+      // '로그인 케이스'를 가장 위로 올리고, '비로그인 케이스'는 뒤로.
+      const list = [...rawList].sort((a, b) => {
+        const ra = sectionLoginRank(a.sectionName);
+        const rb = sectionLoginRank(b.sectionName);
+        return ra - rb;
+      });
       setFrames(list);
       setCatalog(data.catalog || []);
       setCachedHit(data.cached || false);
 
-      // 첫 프레임 자동 활성화
+      // 정렬된 첫 프레임 자동 활성화 (= 로그인 케이스의 첫 시안)
       if (list.length > 0) {
         const first = list[0];
         setActiveFrameId(first.frameId);
