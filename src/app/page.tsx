@@ -42,6 +42,7 @@ export default function Home() {
   const [stagingCaptures, setStagingCaptures] = useState<StagingCaptureItem[]>(
     []
   );
+  const [figmaUniqueWidths, setFigmaUniqueWidths] = useState<number[]>([]);
   const [results, setResults] = useState<ComparisonResult[]>([]);
   const [summary, setSummary] = useState<{
     critical: number;
@@ -153,12 +154,17 @@ export default function Home() {
               setResults([]);
               setSummary(null);
             }}
+            onFramesLoaded={setFigmaUniqueWidths}
           />
 
           <ImplInput
             onTokensExtracted={setImplTokens}
             onCapturesReady={setStagingCaptures}
-            targetWidths={deriveCaptureWidths(activeFrameMeta)}
+            targetWidths={
+              figmaUniqueWidths.length > 0
+                ? figmaUniqueWidths
+                : deriveCaptureWidths(activeFrameMeta)
+            }
           />
         </div>
 
@@ -344,6 +350,13 @@ function findMatchingCapture(
 ): StagingCaptureItem | null {
   const validCaptures = captures.filter((c) => c.capture !== null);
   if (validCaptures.length === 0) return null;
+
+  // 0순위: 활성 프레임 너비와 정확히 일치하는 캡처 (폭 1px 차이까지 허용)
+  const exactWidth = Math.round(meta.width);
+  const exactWidthMatch = validCaptures.find(
+    (c) => Math.abs(c.viewport.width - exactWidth) <= 1
+  );
+  if (exactWidthMatch) return exactWidthMatch;
 
   // 1순위: 시안 이름의 viewport 범위 우선
   if (meta.viewportRange) {

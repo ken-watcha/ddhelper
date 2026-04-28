@@ -70,6 +70,7 @@ interface ActiveFrameMeta {
 
 export default function FigmaInput({
   onTokensExtracted,
+  onFramesLoaded,
 }: {
   onTokensExtracted: (
     tokens: DesignToken[],
@@ -77,6 +78,11 @@ export default function FigmaInput({
     catalog: DesignSystemToken[],
     activeFrame: ActiveFrameMeta | null
   ) => void;
+  /**
+   * 로드된 모든 시안의 unique 너비 배열을 부모에 전달.
+   * 빈 배열이면 시안이 비었거나 아직 로드 안 됨.
+   */
+  onFramesLoaded?: (uniqueWidths: number[]) => void;
 }) {
   const [url, setUrl] = useState("");
   const [foundationUrl, setFoundationUrl] = useState("");
@@ -146,6 +152,13 @@ export default function FigmaInput({
       setCatalog(data.catalog || []);
       setCachedHit(data.cached || false);
 
+      // 로드된 모든 시안의 unique 너비 추출 → 부모로 전달.
+      // 스테이징 캡처 시 모든 사이즈를 한 번에 잡아두면 케이스 전환 시 매칭됨.
+      const widths = Array.from(
+        new Set(list.map((f) => Math.round(f.width)).filter((w) => w > 0))
+      ).sort((a, b) => a - b);
+      onFramesLoaded?.(widths);
+
       // 정렬된 첫 프레임 자동 활성화 (= 로그인 케이스의 첫 시안)
       if (list.length > 0) {
         const first = list[0];
@@ -162,6 +175,7 @@ export default function FigmaInput({
       } else {
         setActiveFrameId(null);
         onTokensExtracted([], null, data.catalog || [], null);
+        onFramesLoaded?.([]);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "피그마를 불러오지 못했습니다");
