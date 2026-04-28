@@ -13,22 +13,48 @@ import { postJson } from "@/lib/fetcher";
 import TokenPreview from "./TokenPreview";
 
 /**
- * SECTION 이름으로 로그인 케이스 우선순위 결정.
- * 0 = 로그인 케이스 (가장 위), 1 = 중립, 2 = 비로그인 (가장 아래).
+ * 프레임 이름 + SECTION 이름으로 로그인/구독 우선순위 결정.
+ * 0 = 로그인+구독 (가장 위), 1 = 중립, 2 = 비로그인/비구독 (가장 아래).
  *
- * 스테이징은 보통 본인 세션으로 로그인된 상태이므로, 로그인 케이스 시안을
- * 자동 우선 노출 → 디자이너가 케이스 chip 일일이 클릭하지 않아도 비교 가능.
+ * 스테이징은 보통 본인 세션(로그인/구독자)이므로 그 케이스 시안을 자동 우선.
+ * 디자이너가 SECTION 이름은 'SVOD_로그인/구독 케이스_WEB' 으로 묶고
+ * 그 안에 프레임 이름으로 '로그인/구독_…', '비로그인/비구독_…' 식으로
+ * 또 분기하기도 하므로 두 이름을 함께 평가. 프레임 이름이 더 구체적이라 우선.
  */
-function sectionLoginRank(name: string | null): number {
-  if (!name) return 1;
-  const s = name.toLowerCase();
-  // '비로그인'은 '로그인'을 부분 문자열로 가지므로 먼저 체크
-  if (s.includes("비로그인") || s.includes("비 로그인") || s.includes("비-로그인")) {
-    return 2;
-  }
-  if (s.includes("로그인") || s.includes("login") || s.includes("signed in")) {
-    return 0;
-  }
+function frameLoginRank(
+  frameName: string | null | undefined,
+  sectionName: string | null
+): number {
+  const isNegative = (s: string | null | undefined) => {
+    if (!s) return false;
+    const lower = s.toLowerCase();
+    return (
+      lower.includes("비로그인") ||
+      lower.includes("비구독") ||
+      lower.includes("비 로그인") ||
+      lower.includes("비-로그인") ||
+      lower.includes("비 구독") ||
+      lower.includes("비-구독")
+    );
+  };
+  const isPositive = (s: string | null | undefined) => {
+    if (!s) return false;
+    const lower = s.toLowerCase();
+    return (
+      lower.includes("로그인") ||
+      lower.includes("login") ||
+      lower.includes("구독") ||
+      lower.includes("subscrib") ||
+      lower.includes("signed in")
+    );
+  };
+
+  // 프레임 이름이 더 구체적 — 프레임 이름이 명시한 상태가 우선
+  if (isNegative(frameName)) return 2;
+  if (isPositive(frameName)) return 0;
+  // 그 다음에 SECTION 이름
+  if (isNegative(sectionName)) return 2;
+  if (isPositive(sectionName)) return 0;
   return 1;
 }
 
@@ -109,11 +135,11 @@ export default function FigmaInput({
       });
 
       const rawList = data.frames || [];
-      // SECTION 이름 기반 자동 우선순위 — 스테이징은 보통 로그인 상태이므로
-      // '로그인 케이스'를 가장 위로 올리고, '비로그인 케이스'는 뒤로.
+      // 자동 우선순위: 로그인/구독 케이스 → 중립 → 비로그인/비구독.
+      // 프레임 이름 우선, SECTION 이름은 보조.
       const list = [...rawList].sort((a, b) => {
-        const ra = sectionLoginRank(a.sectionName);
-        const rb = sectionLoginRank(b.sectionName);
+        const ra = frameLoginRank(a.name, a.sectionName);
+        const rb = frameLoginRank(b.name, b.sectionName);
         return ra - rb;
       });
       setFrames(list);
