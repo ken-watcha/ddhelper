@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import {
   DesignToken,
@@ -43,6 +43,20 @@ export default function Home() {
     []
   );
   const [figmaUniqueWidths, setFigmaUniqueWidths] = useState<number[]>([]);
+
+  // Figma의 unique 너비 구성이 바뀌면 (다른 파일/노드 로드 등) 옛 staging 캡처는
+  // 더 이상 매칭되지 않으므로 비워서 사용자가 분석하기를 다시 누르도록 유도.
+  // 처음 로드(빈→값)는 무시 — 첫 로드 후엔 비교 직전이라 staging이 비어있음.
+  const prevWidthsKeyRef = useRef<string>("");
+  useEffect(() => {
+    const key = figmaUniqueWidths.slice().sort((a, b) => a - b).join(",");
+    if (prevWidthsKeyRef.current && prevWidthsKeyRef.current !== key) {
+      setStagingCaptures([]);
+      setResults([]);
+      setSummary(null);
+    }
+    prevWidthsKeyRef.current = key;
+  }, [figmaUniqueWidths]);
   const [results, setResults] = useState<ComparisonResult[]>([]);
   const [summary, setSummary] = useState<{
     critical: number;
@@ -286,6 +300,10 @@ export default function Home() {
                   }
                   sectionName={activeFrameMeta?.sectionName}
                   frameName={activeFrameMeta?.name}
+                  hasAnyStagingCaptures={stagingCaptures.some(
+                    (c) => c.capture !== null
+                  )}
+                  activeFrameWidth={activeFrameMeta?.width}
                 />
               ) : viewMode === "visual" && !frame ? (
                 <div className="space-y-4">
@@ -370,26 +388,18 @@ function findMatchingCapture(
         c.viewport.width > largest.viewport.width ? c : largest
       );
     }
-    // 범위 안에 캡처가 없으면 가장 가까운 캡처 (예: 시안은 360~599인데 캡처는 375)
-    const target = (min + Math.min(max, 9999)) / 2;
-    return validCaptures.reduce((best, c) =>
-      Math.abs(c.viewport.width - target) <
-      Math.abs(best.viewport.width - target)
-        ? c
-        : best
-    );
   }
 
-  // 2순위: 카테고리 매핑
+  // 2순위: 카테고리 매핑 (정확 일치만)
   const targetWidth = VIEWPORT_CAPTURE_WIDTHS[meta.viewport];
-  const exact = validCaptures.find((c) => c.viewport.width === targetWidth);
-  if (exact) return exact;
-  return validCaptures.reduce((best, c) =>
-    Math.abs(c.viewport.width - targetWidth) <
-    Math.abs(best.viewport.width - targetWidth)
-      ? c
-      : best
+  const categoryExact = validCaptures.find(
+    (c) => c.viewport.width === targetWidth
   );
+  if (categoryExact) return categoryExact;
+
+  // 정확 매칭이 하나도 없으면 null 반환 — 잘못된 'closest' 캡처를 보여주는 대신
+  // VisualCompare에서 '이 시안에 맞는 캡처 없음, 분석하기 다시 눌러주세요' 안내.
+  return null;
 }
 
 function StepBadge({ number }: { number: number }) {
